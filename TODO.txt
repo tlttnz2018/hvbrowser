@@ -1,0 +1,76 @@
+Navigation:
+    * Stories offline
+Storage
+    * Automatic icon
+    * Save html files download with Expo.FileSystem
+Browse
+    DONE * Auto hide button on focus text input.
+    DONE Add menu for increase/decrease font size
+    DONE Clean up text (replace like 9u = cuu u) and remove ads text like UU看书  欢迎广大书友光临阅读，最新、最快、最火的连载作品尽在UU看书！
+    Remove script execution based on site configuration
+        * Support site configuration
+        * Remove script based on site configuration
+    * Auto hide/show control bar PROBLEM
+        * Change from auto scroll to use ScrollView <-- Work only on Android, not for IOS yet.
+    * Need to allow login for website.
+    * Capitalize after convert.
+    * Support name file
+    * Support add dictionary
+    DONE * Support switching between 汉/HV
+    Issue: When switching between HV/汉 in Android, it will go back to main page.
+    DONE Issue: must enter the full url to go to the website.
+    FIXED Issue: kanunu8.com not work with popup.
+    FIXED Issue: 66wx click on Next Page doesn't work because of wrong url resolve.
+    
+https://github.com/openUmbrella/react-native-root-tips <-- Message dialog 汉
+--------------------------------- Release 002
+DONE Home page with multiple saving page
+    DONE predefined, not save with favico * Save page with address and favico
+    * Click on those images will connect to that page
+
+Storage:
+    * {
+        DONE url: home page url,
+        ->ico: favico,
+        DONE name: home page title
+    }
+    * Save html files download with Expo.FileSystem.
+
+ Navigation:
+    DONE * Home
+        DONE * Show only home page added
+        WONT DO: Drawer, complex * Have button on the left to show dialog for navigating to Home, Search, and stories names stored
+    DONE * Browse
+        DONE * Will show the current main screen
+    * Stories offline: TBD.
+
+Browse screen:
+    DONE * Manage url flow from Search screen to SearchInput.
+    DONE * Allow to go backward/forward
+    DONE * Check state for allowing click backward/forward
+    ->* Auto hide/show search PROBLEM 📚
+    DONE * Show loading icon during convert.
+    FIXED: Load Chinese page then replace it with HV content. Now, just clear it.
+    FIXED Issue: Because set the content directly, webview don't store the navigation history.
+    FIXED Issue: https://github.com/facebook/react-native/issues/10756 Android cannot access http://m.piaotian.com :D
+    FIXED Remove top of array to make sure it retain 20 backs.
+    DONE * Allow to add home page (will save the baseUrl automatically to storage).
+        DONE * Implement add button to add address
+        DONE * Implement AsyncStorage to store the address
+        DONE * Implement List View to show the address stored.
+            DONE * Add button to go to list view.
+            DONE * Show static list view.
+    FIXED Issue: Not load at first time, must switch view to update bookmark.
+    FIXED Issue: bookmark override presaved links.
+    FIXED Issue: Title of the link is incorrect. It's for the old url title, not the very current one.
+    Need to allow login for website.
+    Capitalize after convert.
+    Support name file
+    Support add dictionary
+
+DONE Error:
+    When touch, navigationType = click, with url, call handleUrl, download, convertHV then set content, then navigationType=other.
+
+    Link to test
+    https://sj.uukanshu.com/
+    https://sj.uukanshu.com/book.aspx?id=60556
