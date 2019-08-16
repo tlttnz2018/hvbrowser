@@ -4,7 +4,8 @@ import {
   StyleSheet,
   Text,
   View,
-  WebView,
+  ScrollView,
+  Dimensions,
   TouchableOpacity,
   AsyncStorage
 } from 'react-native';
@@ -15,6 +16,8 @@ import SearchInput from './components/SearchInput';
 import {downloadHtmlPage, convertHtmlPageToHV} from './utils/downloader';
 import {cleanupHtml, updateRelativeUrl} from './utils/cleanup';
 import {fixUrl, extractBaseUrl} from './utils/normalize-url';
+// import HTMLView from 'react-native-htmlview';
+import HTML from 'react-native-render-html';
 
 const WEBVIEW_REF = 'webview';
 const TITLE_LENGTH = 150;
@@ -418,16 +421,10 @@ export default class App extends React.Component {
             {loading && (<ActivityIndicator animating={loading} color="rgba(0,0,0,0.2)" size="large"/>)}
             {!loading && (
 
-              <WebView
-                ref={WEBVIEW_REF}
-                source={{html: isHV ? htmlHV : htmlOrig, baseUrl: fullSite ? extractBaseUrl(currentUrl) : undefined}}
-                style={{flex: 1}}
-                mixedContentMode='always'
-                useWebKit={true}
-                injectedJavaScript={'javascript:(function() {document.body.style.fontSize = "' + fontSize + 'em";})()'} //window.onscroll=function(){(if((document.documentElement.scrollTop > 50) || (document.body.scrollTop > 50)) {window.postMessage(document.documentElement.scrollTop||document.body.scrollTop);};};
-                onNavigationStateChange={this.onFollowLink}
-                // onMessage={this.onMessageReceive}
-              />
+              <ScrollView style={{ flex: 1 }}>
+                {/*<HTMLView value= {isHV ? htmlHV : htmlOrig} stylesheet={styles}/>*/}
+                <HTML html={isHV ? htmlHV : htmlOrig} imagesMaxWidth={Dimensions.get('window').width} onLinkPress = {(event, href) => this.handleUpdateUrl(href)}/>
+              </ScrollView>
             )}
           </View>
         )}
