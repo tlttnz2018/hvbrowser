@@ -9,16 +9,17 @@
   "dependencies": {
     "buffer": "^5.2.1",
     "encoding-japanese": "^1.0.29",
-    "expo": "^34.0.3",
+    "expo": "^35.0.0",
     "iconv-lite": "^0.4.24",
     "lodash": "^4.17.15",
     "prop-types": "^15.7.2",
     "react": "16.8.3",
-    "react-native": "https://github.com/expo/react-native/archive/sdk-34.0.0.tar.gz",
+    "react-native": "https://github.com/expo/react-native/archive/sdk-35.0.0.tar.gz",
     "react-native-cheerio": "^1.0.0-rc.4",
     "react-native-messages": "^0.2.4",
     "react-native-uuid": "^1.4.9",
-    "stream": "^0.0.2"
+    "stream": "^0.0.2",
+    "uuid": "^3.3.3"
   },
   "devDependencies": {
     "babel-preset-expo": "^5.0.0"
