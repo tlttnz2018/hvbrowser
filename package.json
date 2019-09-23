@@ -7,10 +7,10 @@
     "eject": "expo eject"
   },
   "dependencies": {
-    "buffer": "^5.2.1",
-    "encoding-japanese": "^1.0.29",
+    "buffer": "^5.4.3",
+    "encoding-japanese": "^1.0.30",
     "expo": "^35.0.0",
-    "iconv-lite": "^0.4.24",
+    "iconv-lite": "^0.5.0",
     "lodash": "^4.17.15",
     "prop-types": "^15.7.2",
     "react": "16.8.3",

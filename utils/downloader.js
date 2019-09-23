@@ -1,8 +1,8 @@
-var encoding = require('encoding-japanese');
-var iconv = require('iconv-lite');
-var Buffer = require('buffer').Buffer;
+const encoding = require('encoding-japanese');
+const iconv = require('iconv-lite');
+const Buffer = require('buffer').Buffer;
 
-var utf8ArrayToStr = (function () {
+const utf8ArrayToStr = (function () {
     var charCache = new Array(128);  // Preallocate the cache for the common single byte chars
     var charFromCodePt = String.fromCodePoint || String.fromCharCode;
     var result = [];
@@ -92,9 +92,9 @@ export const downloadHtmlPage = async url => {
 
 export const convertHtmlPageToHV = async (htmlContent, dictionary) => {
     // Should clean up before convert
-    var idx = 0;
-    var ch, strUni, hvWord, hvTexts;
-    var converts = [];
+    let idx = 0;
+    let ch, strUni, hvWord, hvTexts;
+    const converts = [];
 
     // console.log("Convert to HV for: " + htmlContent);
 

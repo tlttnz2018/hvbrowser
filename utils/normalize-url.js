@@ -10,8 +10,8 @@ function extractContextUrl(url) {
 }
 
 export function extractBaseUrl(url) {
-    var pathArray = url.split( '/' );
-    var protocol = pathArray[0];
+    const pathArray = url.split('/');
+    const protocol = pathArray[0];
     return protocol + '//' + pathArray[2];
 }
 
@@ -70,7 +70,7 @@ export function absolute(current, relative) {
 }
 
 export function fixUrl(currentUrl, nextUrl) {
-    var url = nextUrl;
+    let url = nextUrl;
 
     // console.log("Url clicked: " + url);
     if (!!currentUrl) {
