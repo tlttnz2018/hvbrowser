@@ -1,20 +1,13 @@
 import React from 'react';
-import {
-  ActivityIndicator,
-  StyleSheet,
-  Text,
-  View,
-  WebView,
-  TouchableOpacity,
-  AsyncStorage
-} from 'react-native';
-import {MessageBar, showMessage} from 'react-native-messages';
+import { StyleSheet, Text, View, TouchableOpacity, AsyncStorage } from 'react-native';
+import { MessageBar, showMessage } from 'react-native-messages';
 
 import SearchInput from './components/SearchInput';
-import {downloadHtmlPage, convertHtmlPageToHV} from './utils/downloader';
-import {cleanupHtml, updateRelativeUrl} from './utils/cleanup';
-import {fixUrl, extractBaseUrl} from './utils/normalize-url';
-import {Home} from "./screens/HomeScreen";
+import { downloadHtmlPage, convertHtmlPageToHV } from './utils/downloader';
+import { cleanupHtml, updateRelativeUrl } from './utils/cleanup';
+import { fixUrl, extractBaseUrl } from './utils/normalize-url';
+import { Home } from './screens/HomeScreen';
+import { Web } from './screens/WebScreen';
 
 const WEBVIEW_REF = 'webview';
 const TITLE_LENGTH = 150;
@@ -24,20 +17,21 @@ const LASTVIEW_STORAGE_KEY = 'HV_BROWSER_LASTVIEW_STORAGE_KEY';
 export default class App extends React.Component {
   constructor(props) {
     super(props);
+    this.webViewRef = React.createRef();
     this.state = {
       loading: false,
       error: false,
-      htmlOrig: "",
-      htmlHV: "",
+      htmlOrig: '',
+      htmlHV: '',
       isHV: true,
-      currentUrl: "",
+      currentUrl: '',
       hideSearch: false,
       backButtonEnabled: false,
       dictionary: {},
       history: [],
       showHome: true,
       bookmarkStore: [],
-      lastViewUrl: "",
+      lastViewUrl: '',
       webPageTitle: '',
       urlInputFocus: false,
       moreMenu: true,
@@ -48,7 +42,7 @@ export default class App extends React.Component {
 
   async componentDidMount() {
     let bookmarkStore = [];
-    let lastViewUrl = "";
+    let lastViewUrl = '';
 
     try {
       bookmarkStore = await AsyncStorage.getItem(BOOKMARK_STORAGE_KEY);
@@ -57,24 +51,24 @@ export default class App extends React.Component {
       // console.log("Load bookmarks: " + bookmarkStore);
       // console.log("Last url: " + lastViewUrl);
     } catch (e) {
-      console.log("Failed to load bookmarks");
+      console.log('Failed to load bookmarks');
     }
     this.setState({
       // dictionary: require('./data/DataHanVietUniSimp.json'),
       dictionary: require('./data/DataHanVietUni.json'),
-      bookmarkStore: (!!bookmarkStore) ? JSON.parse(bookmarkStore) : [],
-      lastViewUrl: (!!lastViewUrl) ? JSON.parse(lastViewUrl) : ""
+      bookmarkStore: !!bookmarkStore ? JSON.parse(bookmarkStore) : [],
+      lastViewUrl: !!lastViewUrl ? JSON.parse(lastViewUrl) : ''
     });
   }
 
-  handleUrlInputFocus = (isFocus) => {
+  handleUrlInputFocus = isFocus => {
     this.setState({
       urlInputFocus: isFocus
     });
   };
 
-  updateHistory = (urlNew) => {
-    const {history, currentUrl} = this.state;
+  updateHistory = urlNew => {
+    const { history, currentUrl } = this.state;
     // console.log("Before update: " + history + " with current url: " + currentUrl + " with urlNew: " + urlNew);
 
     if (currentUrl === urlNew) {
@@ -91,13 +85,18 @@ export default class App extends React.Component {
   };
 
   handleUpdateUrl = async url => {
-    const {currentUrl} = this.state;
+    const { currentUrl } = this.state;
 
     if (!url) {
       return;
     }
 
-    if (!url || (url.indexOf("about") !== -1) || (url.indexOf("Bundle/Application") !== -1) || (url.indexOf("postMessage") !== -1)) {
+    if (
+      !url ||
+      url.indexOf('about') !== -1 ||
+      url.indexOf('Bundle/Application') !== -1 ||
+      url.indexOf('postMessage') !== -1
+    ) {
       return;
     }
 
@@ -108,44 +107,49 @@ export default class App extends React.Component {
     // Update history
     var historiesItem = this.updateHistory(url); // It can be a problem when user not enter the full but go back with full
 
-    this.setState({
-      loading: true,
-      currentUrl: url,
-      backButtonEnabled: (!!this.history && (this.history.length >= 1)),
-      history: historiesItem,
-      urlInputFocus: false
-    }, async () => {
-      try {
-        const htmlContent = await downloadHtmlPage(url);
-        const htmlClean = await cleanupHtml(htmlContent);
-        const htmlNormalize = await updateRelativeUrl(htmlClean, url);
-        const htmlConvert = await convertHtmlPageToHV(htmlNormalize, this.state.dictionary);
-        const webPageTitle = htmlConvert.match(/<title>([^<]+)<\/title>/)[1];
+    this.setState(
+      {
+        loading: true,
+        currentUrl: url,
+        backButtonEnabled: !!this.history && this.history.length >= 1,
+        history: historiesItem,
+        urlInputFocus: false
+      },
+      async () => {
+        try {
+          const htmlContent = await downloadHtmlPage(url);
+          const htmlClean = await cleanupHtml(htmlContent);
+          const htmlNormalize = await updateRelativeUrl(htmlClean, url);
+          const htmlConvert = await convertHtmlPageToHV(htmlNormalize, this.state.dictionary);
+          const webPageTitle = htmlConvert.match(/<title>([^<]+)<\/title>/)[1];
 
-        // console.log('Text: ', htmlConvert);
-        this.setState({
-            loading: false,
-            error: false,
-            htmlOrig: '\ufeff' + htmlNormalize,
-            htmlHV: '\ufeff' + htmlConvert,
-            webPageTitle,
-            lastViewUrl: url
-          },
-          async () => {
-            try {
-              let lastViewUrl = JSON.stringify(url);
-              AsyncStorage.setItem(LASTVIEW_STORAGE_KEY, lastViewUrl);
-            } catch (e) {
-              console.log('Failed to save last url ', url);
+          // console.log('Text: ', htmlConvert);
+          this.setState(
+            {
+              loading: false,
+              error: false,
+              htmlOrig: '\ufeff' + htmlNormalize,
+              htmlHV: '\ufeff' + htmlConvert,
+              webPageTitle,
+              lastViewUrl: url
+            },
+            async () => {
+              try {
+                let lastViewUrl = JSON.stringify(url);
+                AsyncStorage.setItem(LASTVIEW_STORAGE_KEY, lastViewUrl);
+              } catch (e) {
+                console.log('Failed to save last url ', url);
+              }
             }
+          );
+        } catch (e) {
+          this.setState({
+            loading: false,
+            error: true
           });
-      } catch (e) {
-        this.setState({
-          loading: false,
-          error: true
-        });
+        }
       }
-    });
+    );
   };
 
   /**
@@ -153,28 +157,37 @@ export default class App extends React.Component {
    * @param navState
    * @return {Promise<void>}
    */
-  onFollowLink = async (navState) => {
+  onFollowLink = async navState => {
     // console.log(" Change link? " + JSON.stringify(navState));
-    const {currentUrl} = this.state;
-    const {title, jsEvaluationValue, url, navigationType} = navState;
+    const { currentUrl } = this.state;
+    const { title, jsEvaluationValue, url, navigationType } = navState;
 
     if (!url) {
       return;
     }
 
-    if (url === currentUrl) { // No change
+    if (url === currentUrl) {
+      // No change
       return;
     }
 
-    if (jsEvaluationValue !== undefined) {//JS
+    if (jsEvaluationValue !== undefined) {
+      //JS
       return;
     }
 
-    if (!title) { // Kind of not html page
+    if (!title) {
+      // Kind of not html page
       return;
     }
 
-    if (!url || (url.indexOf("about") !== -1) || url.match(/data:/) || ((url ===  extractBaseUrl(url) + "/") && (navigationType !== "click")) || (url.indexOf("postMessage") !== -1)) {
+    if (
+      !url ||
+      url.indexOf('about') !== -1 ||
+      url.match(/data:/) ||
+      (url === extractBaseUrl(url) + '/' && navigationType !== 'click') ||
+      url.indexOf('postMessage') !== -1
+    ) {
       // console.log("Skip");
       return;
     }
@@ -189,13 +202,13 @@ export default class App extends React.Component {
   };
 
   goBack = () => {
-    // this.refs[WEBVIEW_REF].goBack();
-    var {history, currentUrl} = this.state;
+    var { history, currentUrl } = this.state;
     var oldUrl;
 
-    if (!!history && (history.length >= 1)) {
+    if (!!history && history.length >= 1) {
       oldUrl = history.pop();
-      if (oldUrl === currentUrl) { // store current, need to skip back one more time
+      if (oldUrl === currentUrl) {
+        // store current, need to skip back one more time
         oldUrl = history.pop();
       }
     }
@@ -218,13 +231,13 @@ export default class App extends React.Component {
   // }
 
   showHome = () => {
-    const {showHome} = this.state;
+    const { showHome } = this.state;
     this.setState({
       showHome: !showHome
     });
   };
 
-  handlePressImage = (url) => {
+  handlePressImage = url => {
     this.setState({
       showHome: false
     });
@@ -233,7 +246,7 @@ export default class App extends React.Component {
 
   toggleBookmark = () => {
     var newStore = [];
-    var {currentUrl, webPageTitle, bookmarkStore} = this.state;
+    var { currentUrl, webPageTitle, bookmarkStore } = this.state;
     if (!currentUrl || !webPageTitle) {
       return;
     }
@@ -245,45 +258,47 @@ export default class App extends React.Component {
       newStore = bookmarkStore;
       showMessage('Bookmark removed!');
     } else {
-      const desc = webPageTitle.slice(0, TITLE_LENGTH) + "...";
+      const desc = webPageTitle.slice(0, TITLE_LENGTH) + '...';
       // Store book
-      const newBookmark = {url: currentUrl, desc};
+      const newBookmark = { url: currentUrl, desc };
       newStore = [...bookmarkStore, newBookmark];
       showMessage('Bookmarked!');
     }
 
-    this.setState({
-      bookmarkStore: newStore
-    }, async () => {
-      try {
-        let bookmarkStoreJson = JSON.stringify(newStore);
-        // console.log("Bookmark before storing: " + bookmarkStoreJson);
-        AsyncStorage.setItem(BOOKMARK_STORAGE_KEY, bookmarkStoreJson);
-      } catch (e) {
-        console.log('Failed to save comment', text, 'for', selectedItemId);
+    this.setState(
+      {
+        bookmarkStore: newStore
+      },
+      async () => {
+        try {
+          let bookmarkStoreJson = JSON.stringify(newStore);
+          // console.log("Bookmark before storing: " + bookmarkStoreJson);
+          AsyncStorage.setItem(BOOKMARK_STORAGE_KEY, bookmarkStoreJson);
+        } catch (e) {
+          console.log('Failed to save comment', text, 'for', selectedItemId);
+        }
       }
-    });
-
+    );
   };
 
   toggleHV = () => {
-    const {isHV} = this.state;
+    const { isHV } = this.state;
     this.setState({
       isHV: !isHV
     });
   };
 
   toggleViewBar = () => {
-    const {moreMenu} = this.state;
+    const { moreMenu } = this.state;
     this.setState({
       moreMenu: !moreMenu
     });
   };
 
-  setFontSizeDiff = (fontSizeDiff) => {
-    const webview = this.refs[WEBVIEW_REF];
-    var {fontSize} = this.state;
-    if (((fontSize <= 0.5) && (fontSizeDiff < 0)) || ((fontSize >= 4) && (fontSizeDiff > 0))) {
+  setFontSizeDiff = fontSizeDiff => {
+    const webview = this.webViewRef.current;
+    var { fontSize } = this.state;
+    if ((fontSize <= 0.5 && fontSizeDiff < 0) || (fontSize >= 4 && fontSizeDiff > 0)) {
       return;
     }
 
@@ -295,7 +310,8 @@ export default class App extends React.Component {
 
     // console.log("Font size: " + fontSize);
 
-    const script = 'javascript:(function() {document.body.style.fontSize = "' + fontSize + 'em";})()';  // eslint-disable-line quotes
+    const script =
+      'javascript:(function() {document.body.style.fontSize = "' + fontSize + 'em";})()'; // eslint-disable-line quotes
     if (!!webview) {
       webview.injectJavaScript(script);
       this.setState({
@@ -317,12 +333,12 @@ export default class App extends React.Component {
   };
 
   reloadPage = () => {
-    const {currentUrl} = this.state;
+    const { currentUrl } = this.state;
     this.handleUpdateUrl(currentUrl);
   };
 
   toggleCss = () => {
-    const {fullSite} = this.state;
+    const { fullSite } = this.state;
     this.setState({
       fullSite: !fullSite
     });
@@ -352,89 +368,88 @@ export default class App extends React.Component {
             <View style={styles.urlInput}>
               <SearchInput
                 placeholder="Input chinese website url"
-                url={(currentUrl.indexOf("Bundle/Application") === -1) ? currentUrl : ""}
+                url={currentUrl.indexOf('Bundle/Application') === -1 ? currentUrl : ''}
                 onSubmit={this.handleUpdateUrl}
                 onFocus={this.handleUrlInputFocus}
                 backButtonEnabled={backButtonEnabled}
                 style={styles.inputSearch}
                 onBack={this.goBack}
               />
-              {!urlInputFocus && (<TouchableOpacity
-                onPress={this.toggleBookmark}
-                style={styles.navButton}>
-                <Text>{((bookmarkStore.findIndex(bookmark => bookmark.url === currentUrl) != -1)) ? '📑' : '🔖'}</Text>
-              </TouchableOpacity>)}
+              {!urlInputFocus && (
+                <TouchableOpacity onPress={this.toggleBookmark} style={styles.navButton}>
+                  <Text>
+                    {bookmarkStore.findIndex(bookmark => bookmark.url === currentUrl) != -1
+                      ? '📑'
+                      : '🔖'}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
-          {!showHome && !urlInputFocus && (<TouchableOpacity
-            onPress={this.toggleHV}
-            style={styles.navButton}>
-            <Text>{isHV ? 'HV' : '汉'}</Text>
-          </TouchableOpacity>)}
-          {!showHome && !urlInputFocus && (<TouchableOpacity
-            onPress={this.toggleViewBar}
-            style={styles.navButton}>
-            <Text>{'...'}</Text>
-          </TouchableOpacity>)}
-          <TouchableOpacity
-            onPress={this.showHome}
-            style={styles.navButton}>
+          {!showHome && !urlInputFocus && (
+            <TouchableOpacity onPress={this.toggleHV} style={styles.navButton}>
+              <Text>{isHV ? 'HV' : '汉'}</Text>
+            </TouchableOpacity>
+          )}
+          {!showHome && !urlInputFocus && (
+            <TouchableOpacity onPress={this.toggleViewBar} style={styles.navButton}>
+              <Text>{'...'}</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={this.showHome} style={styles.navButton}>
             <Text>{'🏠'}</Text>
           </TouchableOpacity>
         </View>
         {moreMenu && !showHome && !urlInputFocus && (
           <View style={styles.viewBar}>
-
-            {!loading && (<TouchableOpacity
-              onPress={this.toggleCss}
-              style={styles.navButton}>
-              <Text>{fullSite ? '1' : '½'}</Text>
-
-            </TouchableOpacity>)}
-            {!loading && (<TouchableOpacity
-              onPress={this.reloadPage}
-              style={styles.navButton}>
-              <Text>{'↻'}</Text>
-            </TouchableOpacity>)}
-            {!loading && (<TouchableOpacity
-              onPress={this.decreaseFont}
-              style={styles.navButton}>
-              <Text>{'a⁻'}</Text>
-            </TouchableOpacity>)}
-            {!loading && (<TouchableOpacity
-              onPress={this.resetFont}
-              style={styles.navButton}>
-              <Text>{'1:1'}</Text>
-            </TouchableOpacity>)}
-            {!loading && (<TouchableOpacity
-              onPress={this.increaseFont}
-              style={styles.navButton}>
-              <Text>{'A⁺'}</Text>
-            </TouchableOpacity>)}
-          </View>
-        )}
-        {!showHome && (
-          <View style={styles.webView}>
-            {loading && (<ActivityIndicator animating={loading} color="rgba(0,0,0,0.2)" size="large"/>)}
             {!loading && (
-
-              <WebView
-                ref={WEBVIEW_REF}
-                source={{html: isHV ? htmlHV : htmlOrig, baseUrl: fullSite ? extractBaseUrl(currentUrl) : undefined}}
-                style={{flex: 1}}
-                mixedContentMode='always'
-                useWebKit={true}
-                injectedJavaScript={'javascript:(function() {document.body.style.fontSize = "' + fontSize + 'em";})()'} //window.onscroll=function(){(if((document.documentElement.scrollTop > 50) || (document.body.scrollTop > 50)) {window.postMessage(document.documentElement.scrollTop||document.body.scrollTop);};};
-                onNavigationStateChange={this.onFollowLink}
-                // onMessage={this.onMessageReceive}
-              />
+              <TouchableOpacity onPress={this.toggleCss} style={styles.navButton}>
+                <Text>{fullSite ? '1' : '½'}</Text>
+              </TouchableOpacity>
+            )}
+            {!loading && (
+              <TouchableOpacity onPress={this.reloadPage} style={styles.navButton}>
+                <Text>{'↻'}</Text>
+              </TouchableOpacity>
+            )}
+            {!loading && (
+              <TouchableOpacity onPress={this.decreaseFont} style={styles.navButton}>
+                <Text>{'a⁻'}</Text>
+              </TouchableOpacity>
+            )}
+            {!loading && (
+              <TouchableOpacity onPress={this.resetFont} style={styles.navButton}>
+                <Text>{'1:1'}</Text>
+              </TouchableOpacity>
+            )}
+            {!loading && (
+              <TouchableOpacity onPress={this.increaseFont} style={styles.navButton}>
+                <Text>{'A⁺'}</Text>
+              </TouchableOpacity>
             )}
           </View>
         )}
-        {showHome && (
-          <Home onPressImage={this.handlePressImage} bookmarkStore={bookmarkStore} lastViewUrl={lastViewUrl}/>
+        {!showHome && (
+          <Web
+            loading={loading}
+            hv={isHV}
+            htmlHV={htmlHV}
+            htmlOrig={htmlOrig}
+            fullSite={fullSite}
+            url={currentUrl}
+            fontSize={fontSize}
+            onNavigationStateChange={this.onFollowLink}
+            forwardRef={this.webViewRef}
+          />
         )}
-        <MessageBar style={styles.messageBar}/>
+        {showHome && (
+          <Home
+            onPressImage={this.handlePressImage}
+            bookmarkStore={bookmarkStore}
+            lastViewUrl={lastViewUrl}
+          />
+        )}
+        <MessageBar style={styles.messageBar} />
       </View>
     );
   }
@@ -442,9 +457,9 @@ export default class App extends React.Component {
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: "column",
+    flexDirection: 'column',
     backgroundColor: '#fff',
-    position: "absolute",
+    position: 'absolute',
     top: 30,
     left: 0,
     right: 0,
@@ -452,13 +467,13 @@ const styles = StyleSheet.create({
   },
   controlBar: {
     height: 30,
-    flexDirection: "row",
+    flexDirection: 'row',
     justifyContent: 'flex-end'
   },
   viewBar: {
     height: 30,
     marginTop: 3,
-    flexDirection: "row",
+    flexDirection: 'row',
     justifyContent: 'flex-end'
   },
   urlInput: {
@@ -468,11 +483,6 @@ const styles = StyleSheet.create({
   inputSearch: {
     flex: 1
   },
-  webView: {
-    flex: 6,
-    justifyContent: 'center'
-  },
-
   navButton: {
     width: 30,
     padding: 3,

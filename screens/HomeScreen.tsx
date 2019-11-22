@@ -16,7 +16,7 @@ const HomeWrapper = styled.View`
 `;
 
 const Instruction = styled.Text`
-    margin: 10px 10px
+  margin: 10px 10px;
 `;
 
 export const Home: FunctionComponent<HomeProps> = props => {
