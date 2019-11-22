@@ -10,11 +10,11 @@ import {
 } from 'react-native';
 import {MessageBar, showMessage} from 'react-native-messages';
 
-import ImageGrid from './components/ImageGrid';
 import SearchInput from './components/SearchInput';
 import {downloadHtmlPage, convertHtmlPageToHV} from './utils/downloader';
 import {cleanupHtml, updateRelativeUrl} from './utils/cleanup';
 import {fixUrl, extractBaseUrl} from './utils/normalize-url';
+import {Home} from "./screens/HomeScreen";
 
 const WEBVIEW_REF = 'webview';
 const TITLE_LENGTH = 150;
@@ -432,12 +432,7 @@ export default class App extends React.Component {
           </View>
         )}
         {showHome && (
-          <View style={styles.homeView}>
-            <Text>Please click on 🏠 button for switching between Home and Browse mode or click on any icon below to go
-              to the site</Text>
-            <ImageGrid onPressImage={this.handlePressImage} bookmarkStore={bookmarkStore || []}
-                       lastViewUrl={lastViewUrl}/>
-          </View>
+          <Home onPressImage={this.handlePressImage} bookmarkStore={bookmarkStore} lastViewUrl={lastViewUrl}/>
         )}
         <MessageBar style={styles.messageBar}/>
       </View>
@@ -477,10 +472,7 @@ const styles = StyleSheet.create({
     flex: 6,
     justifyContent: 'center'
   },
-  homeView: {
-    flex: 6,
-    justifyContent: 'center'
-  },
+
   navButton: {
     width: 30,
     padding: 3,

@@ -1,10 +1,12 @@
 {
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
+    "precommit": "lint-staged",
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "eject": "expo eject"
+    "eject": "expo eject",
+    "prettier": "prettier 'src/**/*.js'"
   },
   "dependencies": {
     "buffer": "^5.4.3",
@@ -19,10 +21,27 @@
     "react-native-messages": "^0.2.4",
     "react-native-uuid": "^1.4.9",
     "stream": "^0.0.2",
+    "styled-components": "4.2.0",
     "uuid": "^3.3.3"
   },
   "devDependencies": {
-    "babel-preset-expo": "^5.0.0"
+    "@types/react": "^16.8.23",
+    "@types/react-native": "^0.57.65",
+    "babel-preset-expo": "^7.1.0",
+    "eslint": "^6.6.0",
+    "eslint-config-airbnb": "^18.0.1",
+    "eslint-config-prettier": "^6.7.0",
+    "eslint-plugin-import": "^2.18.2",
+    "eslint-plugin-jsx-a11y": "^6.2.3",
+    "eslint-plugin-prettier": "^3.1.1",
+    "eslint-plugin-react": "^7.16.0",
+    "typescript": "^3.6.3"
   },
-  "private": true
+  "private": true,
+  "lint-staged": {
+    "*.js": [
+      "prettier --write",
+      "git add"
+    ]
+  }
 }

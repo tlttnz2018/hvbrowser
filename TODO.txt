@@ -1,4 +1,6 @@
 TODO:
+- Move to styled-component
+- Break down App.js to tsx.
 - Replace uuid with react-native-uuid
 
 

@@ -9,6 +9,11 @@ import React, { PureComponent } from 'react';
 import uuid from 'uuid';
 
 import Grid from './Grid';
+import styled from 'styled-components';
+
+const GridWrapper = styled(Grid)`
+  margin: 0px 0px
+`;
 
 const keyExtractor = () => uuid.v4();
 
@@ -50,7 +55,8 @@ export default class ImageGrid extends PureComponent {
           marginTop,
           borderWidth: 1,
           borderColor: '#666',
-          borderRadius: 5
+          borderRadius: 5,
+          padding: 5
       };
 
       return (
@@ -70,7 +76,7 @@ export default class ImageGrid extends PureComponent {
       const { images } = this.state;
       const {bookmarkStore, lastViewUrl} = this.props;
       return (
-          <Grid
+          <GridWrapper
               data={[{url: lastViewUrl, desc: "Last Open URL"}, ...images, ...bookmarkStore]}
               renderItem={this.renderItem}
               keyExtractor={keyExtractor}
