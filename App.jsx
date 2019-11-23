@@ -8,16 +8,20 @@ import { cleanupHtml, updateRelativeUrl } from './utils/cleanup';
 import { fixUrl, extractBaseUrl } from './utils/normalize-url';
 import { Home } from './screens/HomeScreen';
 import { Web } from './screens/WebScreen';
+import { observer } from 'mobx-react';
+import appStore from './AppStore';
+import HomeToggleButton from './components/toolbars/HomeToggleButton';
+import MoreToggleButton from './components/toolbars/MoreToggleButton';
+import WebToolbar from './components/toolbars/WebToolbar';
 
-const WEBVIEW_REF = 'webview';
 const TITLE_LENGTH = 150;
 const BOOKMARK_STORAGE_KEY = 'HV_BROWSER_BOOKMARK_STORAGE_KEY';
 const LASTVIEW_STORAGE_KEY = 'HV_BROWSER_LASTVIEW_STORAGE_KEY';
 
+@observer
 export default class App extends React.Component {
   constructor(props) {
     super(props);
-    this.webViewRef = React.createRef();
     this.state = {
       loading: false,
       error: false,
@@ -29,14 +33,9 @@ export default class App extends React.Component {
       backButtonEnabled: false,
       dictionary: {},
       history: [],
-      showHome: true,
       bookmarkStore: [],
       lastViewUrl: '',
-      webPageTitle: '',
-      urlInputFocus: false,
-      moreMenu: true,
-      fullSite: true,
-      fontSize: 1
+      webPageTitle: ''
     };
   }
 
@@ -61,12 +60,6 @@ export default class App extends React.Component {
     });
   }
 
-  handleUrlInputFocus = isFocus => {
-    this.setState({
-      urlInputFocus: isFocus
-    });
-  };
-
   updateHistory = urlNew => {
     const { history, currentUrl } = this.state;
     // console.log("Before update: " + history + " with current url: " + currentUrl + " with urlNew: " + urlNew);
@@ -75,7 +68,7 @@ export default class App extends React.Component {
       return history; // No change
     }
 
-    var historiesItem = [...history, urlNew];
+    const historiesItem = [...history, urlNew];
     if (historiesItem.length > 50) {
       historiesItem.shift();
     }
@@ -107,13 +100,13 @@ export default class App extends React.Component {
     // Update history
     var historiesItem = this.updateHistory(url); // It can be a problem when user not enter the full but go back with full
 
+    appStore.urlInputFocus = false;
     this.setState(
       {
         loading: true,
         currentUrl: url,
         backButtonEnabled: !!this.history && this.history.length >= 1,
-        history: historiesItem,
-        urlInputFocus: false
+        history: historiesItem
       },
       async () => {
         try {
@@ -230,17 +223,8 @@ export default class App extends React.Component {
   // }
   // }
 
-  showHome = () => {
-    const { showHome } = this.state;
-    this.setState({
-      showHome: !showHome
-    });
-  };
-
   handlePressImage = url => {
-    this.setState({
-      showHome: false
-    });
+    appStore.showWeb();
     this.handleUpdateUrl(url);
   };
 
@@ -288,66 +272,13 @@ export default class App extends React.Component {
     });
   };
 
-  toggleViewBar = () => {
-    const { moreMenu } = this.state;
-    this.setState({
-      moreMenu: !moreMenu
-    });
-  };
-
-  setFontSizeDiff = fontSizeDiff => {
-    const webview = this.webViewRef.current;
-    var { fontSize } = this.state;
-    if ((fontSize <= 0.5 && fontSizeDiff < 0) || (fontSize >= 4 && fontSizeDiff > 0)) {
-      return;
-    }
-
-    if (fontSizeDiff !== 0) {
-      fontSize += fontSizeDiff;
-    } else {
-      fontSize = 1;
-    }
-
-    // console.log("Font size: " + fontSize);
-
-    const script =
-      'javascript:(function() {document.body.style.fontSize = "' + fontSize + 'em";})()'; // eslint-disable-line quotes
-    if (!!webview) {
-      webview.injectJavaScript(script);
-      this.setState({
-        fontSize
-      });
-    }
-  };
-
-  increaseFont = () => {
-    this.setFontSizeDiff(0.25);
-  };
-
-  decreaseFont = () => {
-    this.setFontSizeDiff(-0.25);
-  };
-
-  resetFont = () => {
-    this.setFontSizeDiff(0);
-  };
-
   reloadPage = () => {
     const { currentUrl } = this.state;
     this.handleUpdateUrl(currentUrl);
   };
 
-  toggleCss = () => {
-    const { fullSite } = this.state;
-    this.setState({
-      fullSite: !fullSite
-    });
-  };
-
   render() {
     const {
-      moreMenu,
-      showHome,
       isHV,
       htmlOrig,
       htmlHV,
@@ -355,22 +286,20 @@ export default class App extends React.Component {
       backButtonEnabled,
       loading,
       bookmarkStore,
-      lastViewUrl,
-      urlInputFocus,
-      fontSize,
-      fullSite
+      lastViewUrl
     } = this.state;
 
+    const { isHome, isWeb, urlInputFocus, showMoreMenu } = appStore;
     return (
       <View style={styles.container}>
         <View style={styles.controlBar}>
-          {!showHome && (
+          {!isHome && (
             <View style={styles.urlInput}>
               <SearchInput
                 placeholder="Input chinese website url"
                 url={currentUrl.indexOf('Bundle/Application') === -1 ? currentUrl : ''}
                 onSubmit={this.handleUpdateUrl}
-                onFocus={this.handleUrlInputFocus}
+                onFocus={(isFocus) => appStore.urlInputFocus = isFocus}
                 backButtonEnabled={backButtonEnabled}
                 style={styles.inputSearch}
                 onBack={this.goBack}
@@ -386,63 +315,28 @@ export default class App extends React.Component {
               )}
             </View>
           )}
-          {!showHome && !urlInputFocus && (
+          {!isHome && !urlInputFocus && (
             <TouchableOpacity onPress={this.toggleHV} style={styles.navButton}>
               <Text>{isHV ? 'HV' : '汉'}</Text>
             </TouchableOpacity>
           )}
-          {!showHome && !urlInputFocus && (
-            <TouchableOpacity onPress={this.toggleViewBar} style={styles.navButton}>
-              <Text>{'...'}</Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity onPress={this.showHome} style={styles.navButton}>
-            <Text>{'🏠'}</Text>
-          </TouchableOpacity>
+          <MoreToggleButton/>
+          <HomeToggleButton/>
         </View>
-        {moreMenu && !showHome && !urlInputFocus && (
-          <View style={styles.viewBar}>
-            {!loading && (
-              <TouchableOpacity onPress={this.toggleCss} style={styles.navButton}>
-                <Text>{fullSite ? '1' : '½'}</Text>
-              </TouchableOpacity>
-            )}
-            {!loading && (
-              <TouchableOpacity onPress={this.reloadPage} style={styles.navButton}>
-                <Text>{'↻'}</Text>
-              </TouchableOpacity>
-            )}
-            {!loading && (
-              <TouchableOpacity onPress={this.decreaseFont} style={styles.navButton}>
-                <Text>{'a⁻'}</Text>
-              </TouchableOpacity>
-            )}
-            {!loading && (
-              <TouchableOpacity onPress={this.resetFont} style={styles.navButton}>
-                <Text>{'1:1'}</Text>
-              </TouchableOpacity>
-            )}
-            {!loading && (
-              <TouchableOpacity onPress={this.increaseFont} style={styles.navButton}>
-                <Text>{'A⁺'}</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+        {showMoreMenu && !loading && (
+          <WebToolbar reloadPage={this.reloadPage}/>
         )}
-        {!showHome && (
+        {isWeb && (
           <Web
             loading={loading}
             hv={isHV}
             htmlHV={htmlHV}
             htmlOrig={htmlOrig}
-            fullSite={fullSite}
             url={currentUrl}
-            fontSize={fontSize}
             onNavigationStateChange={this.onFollowLink}
-            forwardRef={this.webViewRef}
           />
         )}
-        {showHome && (
+        {isHome && (
           <Home
             onPressImage={this.handlePressImage}
             bookmarkStore={bookmarkStore}
