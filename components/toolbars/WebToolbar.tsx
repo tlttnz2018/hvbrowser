@@ -1,7 +1,7 @@
 import { Text } from 'react-native';
 import React from 'react';
 import styled from 'styled-components';
-import appStore from '../../AppStore';
+import appStore from '../../stores/AppStore';
 import ToolbarButton from '../ToolbarButton';
 import { observer } from 'mobx-react';
 

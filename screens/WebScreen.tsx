@@ -2,7 +2,7 @@ import React, { FunctionComponent } from 'react';
 import styled from 'styled-components';
 import { ActivityIndicator, WebView } from 'react-native';
 import { extractBaseUrl } from '../utils/normalize-url';
-import appStore from '../AppStore';
+import appStore from '../stores/AppStore';
 import { observer } from 'mobx-react';
 import { observe } from 'mobx';
 

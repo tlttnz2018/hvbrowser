@@ -9,7 +9,7 @@ import { fixUrl, extractBaseUrl } from './utils/normalize-url';
 import { Home } from './screens/HomeScreen';
 import { Web } from './screens/WebScreen';
 import { observer } from 'mobx-react';
-import appStore from './AppStore';
+import appStore from './stores/AppStore';
 import HomeToggleButton from './components/toolbars/HomeToggleButton';
 import MoreToggleButton from './components/toolbars/MoreToggleButton';
 import WebToolbar from './components/toolbars/WebToolbar';

@@ -1,4 +1,4 @@
-import { computed, observable } from 'mobx';
+import { action, computed, observable } from 'mobx';
 
 class AppStore {
   @observable
@@ -22,6 +22,7 @@ class AppStore {
   @observable
   public fontSize: number = 1;
 
+  @action
   increaseFont() {
     if (this.fontSize === 4) {
       return;
@@ -30,6 +31,7 @@ class AppStore {
     this.fontSize += 0.25;
   };
 
+  @action
   decreaseFont() {
     if (this.fontSize === 1) {
       return;
@@ -38,6 +40,7 @@ class AppStore {
     this.fontSize -= 0.25;
   };
 
+  @action
   resetFont() {
     this.fontSize = 1;
   };
