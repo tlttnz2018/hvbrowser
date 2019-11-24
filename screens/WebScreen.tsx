@@ -19,6 +19,11 @@ interface WebProps {
 
 const webView = React.createRef<WebView>();
 
+// Using observe instead of autorun against the advise because
+// autorun runs even when webView is not initialize yet. Mean while
+// observe only run when value change, which ensure webView is already created.
+// If you put an if before dereference, that autorun will not be run which cause
+// some hair teaser.
 observe(webPageStore, 'fontSize', () => {
   const script = `javascript:(function() {document.body.style.fontSize = "${webPageStore.fontSize}em";})()`; // eslint-disable-line quotes
   webView.current.injectJavaScript(script);
