@@ -1,6 +1,7 @@
 import { action, computed, observable } from 'mobx';
 
-class AppStore {
+export class AppStore {
+  // Screen switching
   @observable
   public isHome: boolean = true;
 
@@ -9,41 +10,15 @@ class AppStore {
     return !this.isHome;
   }
 
-  @computed
-  get viewWebPage() {
-    return this.isWeb && !this.urlInputFocus;
+  @action.bound
+  toggleHome() {
+    this.isHome = !this.isHome;
   }
 
-  @computed
-  get showMoreMenu() {
-    return this.moreMenu && this.viewWebPage;
+  @action.bound
+  showWeb() {
+    this.isHome = false;
   }
-
-  @observable
-  public fontSize: number = 1;
-
-  @action
-  increaseFont() {
-    if (this.fontSize === 4) {
-      return;
-    }
-
-    this.fontSize += 0.25;
-  };
-
-  @action
-  decreaseFont() {
-    if (this.fontSize === 1) {
-      return;
-    }
-
-    this.fontSize -= 0.25;
-  };
-
-  @action
-  resetFont() {
-    this.fontSize = 1;
-  };
 
   @observable
   public loading: boolean = false;
@@ -84,32 +59,4 @@ class AppStore {
   // TODO: Can be computed
   @observable
   public webPageTitle: string = '';
-
-  @observable
-  public urlInputFocus: boolean = false;
-
-  @observable
-  public moreMenu: boolean = true;
-
-  @observable
-  public fullSite: boolean = true;
-
-  toggleHome() {
-    this.isHome = !this.isHome;
-  }
-
-  showWeb() {
-    this.isHome = false;
-  }
-
-  toggleWebMore() {
-    this.moreMenu = !this.moreMenu;
-  }
-
-  toggleCss() {
-    this.fullSite = !this.fullSite
-  }
 }
-
-const appStore = new AppStore();
-export default appStore;

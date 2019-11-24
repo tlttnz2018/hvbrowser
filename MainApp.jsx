@@ -8,18 +8,16 @@ import { cleanupHtml, updateRelativeUrl } from './utils/cleanup';
 import { fixUrl, extractBaseUrl } from './utils/normalize-url';
 import { Home } from './screens/HomeScreen';
 import { Web } from './screens/WebScreen';
-import { observer } from 'mobx-react';
-import appStore from './stores/AppStore';
-import HomeToggleButton from './components/toolbars/HomeToggleButton';
-import MoreToggleButton from './components/toolbars/MoreToggleButton';
+import { observer,inject } from 'mobx-react';
+import HomeToggleButton from './components/buttons/HomeToggleButton';
+import MoreToggleButton from './components/buttons/MoreToggleButton';
 import WebToolbar from './components/toolbars/WebToolbar';
 
 const TITLE_LENGTH = 150;
 const BOOKMARK_STORAGE_KEY = 'HV_BROWSER_BOOKMARK_STORAGE_KEY';
 const LASTVIEW_STORAGE_KEY = 'HV_BROWSER_LASTVIEW_STORAGE_KEY';
 
-@observer
-export default class App extends React.Component {
+class MainApp extends React.Component {
   constructor(props) {
     super(props);
     this.state = {
@@ -78,6 +76,7 @@ export default class App extends React.Component {
   };
 
   handleUpdateUrl = async url => {
+    const { webPageStore } = this.props;
     const { currentUrl } = this.state;
 
     if (!url) {
@@ -100,7 +99,7 @@ export default class App extends React.Component {
     // Update history
     var historiesItem = this.updateHistory(url); // It can be a problem when user not enter the full but go back with full
 
-    appStore.urlInputFocus = false;
+    webPageStore.urlInputFocus = false;
     this.setState(
       {
         loading: true,
@@ -224,6 +223,7 @@ export default class App extends React.Component {
   // }
 
   handlePressImage = url => {
+    const {appStore} = this.props;
     appStore.showWeb();
     this.handleUpdateUrl(url);
   };
@@ -278,6 +278,7 @@ export default class App extends React.Component {
   };
 
   render() {
+    const { appStore, webPageStore } = this.props;
     const {
       isHV,
       htmlOrig,
@@ -289,7 +290,8 @@ export default class App extends React.Component {
       lastViewUrl
     } = this.state;
 
-    const { isHome, isWeb, urlInputFocus, showMoreMenu } = appStore;
+    const { isHome, isWeb } = appStore;
+    const { urlInputFocus, showMoreMenu } = webPageStore;
     return (
       <View style={styles.container}>
         <View style={styles.controlBar}>
@@ -299,7 +301,7 @@ export default class App extends React.Component {
                 placeholder="Input chinese website url"
                 url={currentUrl.indexOf('Bundle/Application') === -1 ? currentUrl : ''}
                 onSubmit={this.handleUpdateUrl}
-                onFocus={(isFocus) => appStore.urlInputFocus = isFocus}
+                onFocus={(isFocus) => webPageStore.urlInputFocus = isFocus}
                 backButtonEnabled={backButtonEnabled}
                 style={styles.inputSearch}
                 onBack={this.goBack}
@@ -390,3 +392,5 @@ const styles = StyleSheet.create({
     borderRadius: 3
   }
 });
+
+export default inject('appStore', 'webPageStore')(observer(MainApp))

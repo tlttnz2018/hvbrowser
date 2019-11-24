@@ -2,8 +2,9 @@ import React, { FunctionComponent } from 'react';
 import styled from 'styled-components';
 import { ActivityIndicator, WebView } from 'react-native';
 import { extractBaseUrl } from '../utils/normalize-url';
-import appStore from '../stores/AppStore';
-import { observer } from 'mobx-react';
+import { inject, observer } from 'mobx-react';
+import { webPageStore } from '../stores';
+import { WebPageStore } from '../stores/WebPageStore';
 import { observe } from 'mobx';
 
 interface WebProps {
@@ -13,22 +14,23 @@ interface WebProps {
   htmlOrig: string;
   url: string;
   onNavigationStateChange: (navState: object) => void;
+  webPageStore: WebPageStore;
 }
+
+const webView = React.createRef<WebView>();
+
+observe(webPageStore, 'fontSize', () => {
+  const script = `javascript:(function() {document.body.style.fontSize = "${webPageStore.fontSize}em";})()`; // eslint-disable-line quotes
+  webView.current.injectJavaScript(script);
+});
 
 const WebWrapper = styled.View`
     flex: 6
     justify-content: center
 `;
 
-export const webView = React.createRef<WebView>();
-
-observe(appStore, 'fontSize', () => {
-  const script = `javascript:(function() {document.body.style.fontSize = "${appStore.fontSize}em";})()`; // eslint-disable-line quotes
-  webView.current.injectJavaScript(script);
-});
-
-export const Web: FunctionComponent<WebProps> = observer((props) => {
-  const { fullSite, fontSize } = appStore;
+export const Web: FunctionComponent<WebProps> = inject('webPageStore')(observer((props) => {
+  const { fullSite, fontSize } = props.webPageStore;
   const script = `javascript:(function() {document.body.style.fontSize = "${fontSize}em";})()`; // eslint-disable-line quotes
 
   return (
@@ -55,4 +57,4 @@ export const Web: FunctionComponent<WebProps> = observer((props) => {
       )}
     </WebWrapper>
   );
-});
+}));
