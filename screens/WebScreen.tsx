@@ -9,7 +9,6 @@ import { observe } from 'mobx';
 
 interface WebProps {
   loading: any;
-  hv: any;
   htmlHV: string;
   htmlOrig: string;
   url: string;
@@ -35,7 +34,7 @@ const WebWrapper = styled.View`
 `;
 
 export const Web: FunctionComponent<WebProps> = inject('webPageStore')(observer((props) => {
-  const { fullSite, fontSize } = props.webPageStore;
+  const { fullSite, fontSize, isHV } = props.webPageStore;
   const script = `javascript:(function() {document.body.style.fontSize = "${fontSize}em";})()`; // eslint-disable-line quotes
 
   return (
@@ -48,7 +47,7 @@ export const Web: FunctionComponent<WebProps> = inject('webPageStore')(observer(
         <WebView
           ref={webView}
           source={{
-            html: props.hv ? props.htmlHV : props.htmlOrig,
+            html: isHV ? props.htmlHV : props.htmlOrig,
             baseUrl: fullSite ? extractBaseUrl(props.url) : undefined
           }}
           style={{ flex: 1 }}

@@ -62,4 +62,17 @@ export class WebPageStore {
   resetFont() {
     this.fontSize = 1;
   };
+
+  @observable
+  public isHV: boolean = true;
+
+  @action.bound
+  toggleHV() {
+    this.isHV = !this.isHV;
+  }
+
+  @computed
+  get languageButtonText() {
+    return this.isHV ? 'HV' : '汉';
+  }
 }

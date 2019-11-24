@@ -33,9 +33,6 @@ export class AppStore {
   public htmlHV: string = '';
 
   @observable
-  public isHV: boolean = true;
-
-  @observable
   public currentUrl: string = '';
 
   @observable

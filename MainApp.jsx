@@ -11,7 +11,8 @@ import { Web } from './screens/WebScreen';
 import { observer,inject } from 'mobx-react';
 import HomeToggleButton from './components/buttons/HomeToggleButton';
 import MoreToggleButton from './components/buttons/MoreToggleButton';
-import WebToolbar from './components/toolbars/WebToolbar';
+import WebTextToolbar from './components/toolbars/WebTextToolbar';
+import HVToggleButton from './components/buttons/HVToggleButton';
 
 const TITLE_LENGTH = 150;
 const BOOKMARK_STORAGE_KEY = 'HV_BROWSER_BOOKMARK_STORAGE_KEY';
@@ -25,7 +26,6 @@ class MainApp extends React.Component {
       error: false,
       htmlOrig: '',
       htmlHV: '',
-      isHV: true,
       currentUrl: '',
       hideSearch: false,
       backButtonEnabled: false,
@@ -265,13 +265,6 @@ class MainApp extends React.Component {
     );
   };
 
-  toggleHV = () => {
-    const { isHV } = this.state;
-    this.setState({
-      isHV: !isHV
-    });
-  };
-
   reloadPage = () => {
     const { currentUrl } = this.state;
     this.handleUpdateUrl(currentUrl);
@@ -280,7 +273,6 @@ class MainApp extends React.Component {
   render() {
     const { appStore, webPageStore } = this.props;
     const {
-      isHV,
       htmlOrig,
       htmlHV,
       currentUrl,
@@ -317,21 +309,16 @@ class MainApp extends React.Component {
               )}
             </View>
           )}
-          {!isHome && !urlInputFocus && (
-            <TouchableOpacity onPress={this.toggleHV} style={styles.navButton}>
-              <Text>{isHV ? 'HV' : '汉'}</Text>
-            </TouchableOpacity>
-          )}
+          <HVToggleButton/>
           <MoreToggleButton/>
           <HomeToggleButton/>
         </View>
         {showMoreMenu && !loading && (
-          <WebToolbar reloadPage={this.reloadPage}/>
+          <WebTextToolbar reloadPage={this.reloadPage}/>
         )}
         {isWeb && (
           <Web
             loading={loading}
-            hv={isHV}
             htmlHV={htmlHV}
             htmlOrig={htmlOrig}
             url={currentUrl}

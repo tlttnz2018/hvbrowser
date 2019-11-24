@@ -8,12 +8,12 @@ interface HomeToggleButtonProps {
   appStore: AppStore
 }
 
-const HomeToggleButton: FunctionComponent<HomeToggleButtonProps> = inject('appStore')(({ appStore }) => {
+const HomeToggleButton: FunctionComponent<HomeToggleButtonProps> = ({ appStore }) => {
   return (
     <ToolbarButton onPress={() => appStore.toggleHome()}>
       <Text>{'🏠'}</Text>
     </ToolbarButton>
   );
-});
+};
 
-export default HomeToggleButton;
+export default inject('appStore')(HomeToggleButton);

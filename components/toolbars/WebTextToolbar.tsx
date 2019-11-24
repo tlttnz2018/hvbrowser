@@ -12,12 +12,12 @@ const ViewBar = styled.View`
   justify-content: flex-end
 `;
 
-interface WebToolbarProps {
+interface WebTextToolbarProps {
   webPageStore: WebPageStore;
   reloadPage: () => void;
 }
 
-const WebToolbar: FunctionComponent<WebToolbarProps> = inject('webPageStore')(observer(({webPageStore, reloadPage}) => {
+const WebTextToolbar: FunctionComponent<WebTextToolbarProps> = ({ webPageStore, reloadPage }) => {
   return (
     <ViewBar>
       <ToolbarButton onPress={() => webPageStore.toggleCss()}>
@@ -37,6 +37,6 @@ const WebToolbar: FunctionComponent<WebToolbarProps> = inject('webPageStore')(ob
       </ToolbarButton>
     </ViewBar>
   );
-}));
+};
 
-export default WebToolbar;
+export default inject('webPageStore')(observer(WebTextToolbar));

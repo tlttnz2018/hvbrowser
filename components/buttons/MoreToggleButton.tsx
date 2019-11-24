@@ -8,7 +8,7 @@ interface MoreToggleButtonProps {
   webPageStore: WebPageStore
 }
 
-const MoreToggleButton: FunctionComponent<MoreToggleButtonProps> = inject('webPageStore')(({ webPageStore }) => {
+const MoreToggleButton: FunctionComponent<MoreToggleButtonProps> = ({ webPageStore }) => {
   const { viewWebPage } = webPageStore;
 
   return viewWebPage && (
@@ -16,6 +16,6 @@ const MoreToggleButton: FunctionComponent<MoreToggleButtonProps> = inject('webPa
       <Text>{'...'}</Text>
     </ToolbarButton>
   );
-});
+};
 
-export default MoreToggleButton;
+export default inject('webPageStore')(MoreToggleButton);
