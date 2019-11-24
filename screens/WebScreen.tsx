@@ -1,18 +1,19 @@
 import React, { FunctionComponent } from 'react';
 import styled from 'styled-components';
 import { ActivityIndicator, WebView } from 'react-native';
-import { extractBaseUrl } from '../utils/normalize-url';
+import { observe } from 'mobx';
 import { inject, observer } from 'mobx-react';
+import { extractBaseUrl } from '../utils/normalize-url';
 import { webPageStore } from '../stores';
 import { WebPageStore } from '../stores/WebPageStore';
-import { observe } from 'mobx';
+import { AppStore } from '../stores/AppStore';
 
 interface WebProps {
   loading: any;
   htmlHV: string;
   htmlOrig: string;
-  url: string;
   onNavigationStateChange: (navState: object) => void;
+  appStore: AppStore;
   webPageStore: WebPageStore;
 }
 
@@ -33,8 +34,9 @@ const WebWrapper = styled.View`
     justify-content: center
 `;
 
-export const Web: FunctionComponent<WebProps> = inject('webPageStore')(observer((props) => {
+const Web: FunctionComponent<WebProps> = props => {
   const { fullSite, fontSize, isHV } = props.webPageStore;
+  const { currentUrl } = props.appStore;
   const script = `javascript:(function() {document.body.style.fontSize = "${fontSize}em";})()`; // eslint-disable-line quotes
 
   return (
@@ -48,7 +50,7 @@ export const Web: FunctionComponent<WebProps> = inject('webPageStore')(observer(
           ref={webView}
           source={{
             html: isHV ? props.htmlHV : props.htmlOrig,
-            baseUrl: fullSite ? extractBaseUrl(props.url) : undefined
+            baseUrl: fullSite ? extractBaseUrl(currentUrl) : undefined
           }}
           style={{ flex: 1 }}
           mixedContentMode="compatibility"
@@ -61,4 +63,6 @@ export const Web: FunctionComponent<WebProps> = inject('webPageStore')(observer(
       )}
     </WebWrapper>
   );
-}));
+};
+
+export default inject('appStore', 'webPageStore')(observer(Web));

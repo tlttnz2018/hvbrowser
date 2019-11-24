@@ -1,5 +1,4 @@
-import { AppStore } from './AppStore';
-import { WebPageStore } from './WebPageStore';
+import { appStore } from './AppStore';
+import { webPageStore } from './WebPageStore';
 
-export const appStore = new AppStore();
-export const webPageStore = new WebPageStore(appStore);
+export { appStore, webPageStore};

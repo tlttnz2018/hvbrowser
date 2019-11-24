@@ -1,13 +1,14 @@
 import React, { FunctionComponent } from 'react';
 import styled from 'styled-components';
 import ImageGrid from '../components/ImageGrid';
+import { inject, observer } from 'mobx-react';
+import { AppStore } from '../stores/AppStore';
 
 type UpdateUrlFunction = (url: string) => void;
 
 interface HomeProps {
+  appStore: AppStore;
   onPressImage: UpdateUrlFunction;
-  bookmarkStore: any; // TODO: Determine bookmarkStore format.
-  lastViewUrl: string;
 }
 
 const HomeWrapper = styled.View`
@@ -19,7 +20,7 @@ const Instruction = styled.Text`
   margin: 10px 10px;
 `;
 
-export const Home: FunctionComponent<HomeProps> = props => {
+const Home: FunctionComponent<HomeProps> = props => {
   return (
     <HomeWrapper>
       <Instruction>
@@ -28,9 +29,11 @@ export const Home: FunctionComponent<HomeProps> = props => {
       </Instruction>
       <ImageGrid
         onPressImage={props.onPressImage}
-        bookmarkStore={props.bookmarkStore || []}
-        lastViewUrl={props.lastViewUrl}
+        bookmarkStore={props.appStore.bookmarkStore || []}
+        lastViewUrl={props.appStore.lastViewUrl}
       />
     </HomeWrapper>
   );
 };
+
+export default inject('appStore')(observer(Home));

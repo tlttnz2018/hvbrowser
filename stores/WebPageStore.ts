@@ -1,5 +1,5 @@
 import { action, computed, observable } from 'mobx';
-import { AppStore } from './AppStore';
+import { appStore, AppStore } from './AppStore';
 
 export class WebPageStore {
   private appStore: AppStore;
@@ -76,3 +76,5 @@ export class WebPageStore {
     return this.isHV ? 'HV' : '汉';
   }
 }
+
+export const webPageStore = new WebPageStore(appStore);
