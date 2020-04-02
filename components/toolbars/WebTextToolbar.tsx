@@ -6,10 +6,10 @@ import { inject, observer } from 'mobx-react';
 import { WebPageStore } from '../../stores/WebPageStore';
 
 const ViewBar = styled.View`
-  height: 30px
-  margin-top: 3px
-  flex-direction: row
-  justify-content: flex-end
+  height: 30px;
+  margin-top: 3px;
+  flex-direction: row;
+  justify-content: flex-end;
 `;
 
 interface WebTextToolbarProps {
