@@ -3,8 +3,11 @@ import { StyleSheet, Text } from 'react-native';
 import ToolbarButton from './ToolbarButton';
 import { useAppStore } from '../../stores/useAppStore';
 import { useWebPageStore } from '../../stores/useWebPageStore';
+import { Theme, useTheme } from '../../theme';
 
 export default function BookmarkToggleButton() {
+  const theme = useTheme();
+  const styles = createStyles(theme);
   const urlInputFocus = useWebPageStore((s) => s.urlInputFocus);
   const isCurrentBookmarked = useAppStore((s) => s.isCurrentBookmarked);
   const toggleBookmark = useAppStore((s) => s.toggleBookmark);
@@ -26,19 +29,20 @@ export default function BookmarkToggleButton() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
   button: {
     minWidth: 36,
     height: 36,
     paddingHorizontal: 0,
-    borderRadius: 18,
-    backgroundColor: '#f1f3f5',
+    borderRadius: theme.radius.xl,
+    backgroundColor: theme.colors.surfaceMuted,
     borderWidth: 1,
-    borderColor: '#d7dce2',
+    borderColor: theme.colors.borderMuted,
   },
   buttonSaved: {
-    backgroundColor: '#fff4d6',
-    borderColor: '#f0c36a',
+    backgroundColor: theme.colors.surfaceAccent,
+    borderColor: theme.colors.borderAccent,
   },
   icon: {
     fontSize: 18,

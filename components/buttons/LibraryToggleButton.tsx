@@ -1,9 +1,12 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import ToolbarButton from './ToolbarButton';
 import { useWebPageStore } from '../../stores/useWebPageStore';
+import { Theme, useTheme } from '../../theme';
 
 export default function LibraryToggleButton() {
+  const theme = useTheme();
+  const styles = createStyles(theme);
   const libraryDrawerOpen = useWebPageStore((s) => s.libraryDrawerOpen);
   const setLibraryDrawerOpen = useWebPageStore((s) => s.setLibraryDrawerOpen);
 
@@ -13,17 +16,22 @@ export default function LibraryToggleButton() {
       onPress={() => setLibraryDrawerOpen(!libraryDrawerOpen)}
       variant="primary"
     >
-      <Text
-        style={{
-          fontSize: 18,
-          lineHeight: 18,
-          fontWeight: '700',
-          color: '#fffdf8',
-          transform: [{ rotate: libraryDrawerOpen ? '90deg' : '0deg' }],
-        }}
-      >
+      <Text style={[styles.icon, libraryDrawerOpen && styles.iconOpen]}>
         ☰
       </Text>
     </ToolbarButton>
   );
 }
+
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    icon: {
+      fontSize: 18,
+      lineHeight: 18,
+      fontWeight: '700',
+      color: theme.colors.accentContrast,
+    },
+    iconOpen: {
+      transform: [{ rotate: '90deg' }],
+    },
+  });

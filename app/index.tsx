@@ -1,10 +1,11 @@
 import React, { useRef, useEffect, useCallback } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { WebView, WebViewNavigation } from 'react-native-webview';
 import { useAppStore } from '../stores/useAppStore';
 import { useWebPageStore } from '../stores/useWebPageStore';
 import { usePageLoader } from '../hooks/usePageLoader';
 import { extractBaseUrl } from '../utils/normalize-url';
+import { Theme, absoluteFill, useTheme } from '../theme';
 import {
   stripPresentationHtmlWithChineseTooltips,
   stripPresentationHtmlWithHvTooltips,
@@ -13,6 +14,8 @@ import {
 export default function IndexScreen() {
   const webViewRef = useRef<WebView>(null);
   const { loadPage } = usePageLoader();
+  const theme = useTheme();
+  const styles = createStyles(theme);
 
   const loading = useAppStore((s) => s.loading);
   const htmlOrig = useAppStore((s) => s.htmlOrig);
@@ -64,39 +67,16 @@ export default function IndexScreen() {
   const htmlSource = fullSite
     ? activeHtml
     : isHV
-      ? stripPresentationHtmlWithHvTooltips(htmlOrig, fontSize, dictionary, pinyinDictionary)
-      : stripPresentationHtmlWithChineseTooltips(htmlOrig, fontSize, dictionary, pinyinDictionary);
+      ? stripPresentationHtmlWithHvTooltips(htmlOrig, fontSize, dictionary, pinyinDictionary, theme.reader)
+      : stripPresentationHtmlWithChineseTooltips(htmlOrig, fontSize, dictionary, pinyinDictionary, theme.reader);
   const baseUrl = fullSite && currentUrl ? extractBaseUrl(currentUrl) : undefined;
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#f6f3ee' }}>
+    <View style={styles.screen}>
       {loading && (
-        <View
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: 'rgba(246,243,238,0.84)',
-            zIndex: 2,
-          }}
-        >
-          <View
-            style={{
-              alignItems: 'center',
-              justifyContent: 'center',
-              paddingHorizontal: 22,
-              paddingVertical: 18,
-              borderRadius: 20,
-              backgroundColor: '#fffdf8',
-              borderWidth: 1,
-              borderColor: '#e3d8c9',
-            }}
-          >
-            <ActivityIndicator animating={loading} color="#8a5a2b" size="small" />
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingCard}>
+            <ActivityIndicator animating={loading} color={theme.colors.accent} size="small" />
           </View>
         </View>
       )}
@@ -107,7 +87,7 @@ export default function IndexScreen() {
             html: htmlSource,
             baseUrl,
           }}
-          style={{ flex: 1, backgroundColor: '#fffdf8' }}
+          style={styles.webView}
           mixedContentMode="compatibility"
           injectedJavaScript={initialScript}
           onNavigationStateChange={handleNavigationStateChange}
@@ -116,3 +96,32 @@ export default function IndexScreen() {
     </View>
   );
 }
+
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    screen: {
+      flex: 1,
+      backgroundColor: theme.colors.background,
+    },
+    loadingOverlay: {
+      ...absoluteFill,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.colors.overlay,
+      zIndex: 2,
+    },
+    loadingCard: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 22,
+      paddingVertical: 18,
+      borderRadius: theme.radius.xxl,
+      backgroundColor: theme.colors.surface,
+      borderWidth: 1,
+      borderColor: theme.colors.borderMuted,
+    },
+    webView: {
+      flex: 1,
+      backgroundColor: theme.reader.background,
+    },
+  });

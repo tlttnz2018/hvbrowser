@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, TextInput, Text, View, TouchableOpacity } from 'react-native';
+import { Theme, useTheme } from '../theme';
 
 interface SearchInputProps {
   placeholder?: string;
@@ -23,6 +24,8 @@ export default function SearchInput({
   onToggleReaderMode,
 }: SearchInputProps) {
   const [text, setText] = useState(url);
+  const theme = useTheme();
+  const styles = createStyles(theme);
 
   useEffect(() => {
     setText(url);
@@ -43,21 +46,23 @@ export default function SearchInput({
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity
-        accessibilityRole="button"
-        accessibilityLabel="Go back"
-        onPress={onBack}
-        style={backButtonEnabled ? styles.navButton : styles.disabledButton}
-      >
-        <Text style={styles.backLabel}>{'‹'}</Text>
-      </TouchableOpacity>
+      {backButtonEnabled && (
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          onPress={onBack}
+          style={styles.navButton}
+        >
+          <Text style={styles.backLabel}>{'‹'}</Text>
+        </TouchableOpacity>
+      )}
       <TextInput
         autoCorrect={false}
         value={text}
         placeholder={placeholder}
-        placeholderTextColor="#8e8e93"
+        placeholderTextColor={theme.colors.inputPlaceholder}
         underlineColorAndroid="transparent"
-        style={styles.textInput}
+        style={[styles.textInput, !backButtonEnabled && styles.textInputCompact]}
         clearButtonMode="always"
         onChangeText={setText}
         onSubmitEditing={handleSubmitEditing}
@@ -68,7 +73,7 @@ export default function SearchInput({
         accessibilityRole="button"
         accessibilityLabel={fullSite ? 'Switch to reader mode' : 'Switch to full site mode'}
         onPress={onToggleReaderMode}
-        style={styles.readerButton}
+        style={[styles.readerButton, !backButtonEnabled && styles.readerButtonCompact]}
       >
         <Text style={styles.readerLabel}>{fullSite ? '☷' : '◫'}</Text>
       </TouchableOpacity>
@@ -76,70 +81,65 @@ export default function SearchInput({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    height: 40,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  textInput: {
-    flex: 1,
-    height: 40,
-    color: '#111827',
-    backgroundColor: '#f2f2f7',
-    marginLeft: 6,
-    paddingHorizontal: 12,
-    paddingLeft: 42,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#d1d1d6',
-    fontSize: 16,
-  },
-  navButton: {
-    width: 40,
-    height: 40,
-    marginRight: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#f2f2f7',
-    borderColor: '#d1d1d6',
-    borderWidth: 1,
-    borderRadius: 12,
-  },
-  disabledButton: {
-    width: 40,
-    height: 40,
-    marginRight: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#f2f2f7',
-    borderColor: '#e5e5ea',
-    borderWidth: 1,
-    borderRadius: 12,
-    opacity: 0.45,
-  },
-  backLabel: {
-    fontSize: 24,
-    lineHeight: 24,
-    color: '#007aff',
-    marginTop: -2,
-  },
-  readerButton: {
-    position: 'absolute',
-    left: 54,
-    top: 4,
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 10,
-    backgroundColor: '#e9e6df',
-  },
-  readerLabel: {
-    fontSize: 18,
-    lineHeight: 18,
-    fontWeight: '700',
-    color: '#6a4522',
-  },
-});
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      height: 40,
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    textInput: {
+      flex: 1,
+      height: 40,
+      color: theme.colors.text,
+      backgroundColor: theme.colors.inputBackground,
+      marginLeft: theme.spacing.xs,
+      paddingHorizontal: theme.spacing.md,
+      paddingLeft: 42,
+      borderRadius: theme.radius.md,
+      borderWidth: 1,
+      borderColor: theme.colors.inputBorder,
+      fontSize: 16,
+    },
+    textInputCompact: {
+      marginLeft: 0,
+    },
+    navButton: {
+      width: 40,
+      height: 40,
+      marginRight: 2,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.colors.inputBackground,
+      borderColor: theme.colors.inputBorder,
+      borderWidth: 1,
+      borderRadius: theme.radius.md,
+    },
+    backLabel: {
+      fontSize: 24,
+      lineHeight: 24,
+      color: theme.colors.accent,
+      marginTop: -2,
+    },
+    readerButton: {
+      position: 'absolute',
+      left: 54,
+      top: 4,
+      width: 32,
+      height: 32,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: theme.radius.sm,
+      backgroundColor: theme.colors.surfaceMuted,
+    },
+    readerButtonCompact: {
+      left: 6,
+    },
+    readerLabel: {
+      fontSize: 18,
+      lineHeight: 18,
+      fontWeight: '700',
+      color: theme.colors.textAccent,
+    },
+  });

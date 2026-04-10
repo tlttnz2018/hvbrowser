@@ -22,17 +22,27 @@ import { useAppStore } from '../stores/useAppStore';
 import { useWebPageStore } from '../stores/useWebPageStore';
 import { usePageLoader } from '../hooks/usePageLoader';
 import { useHistory } from '../hooks/useHistory';
+import { Theme, absoluteFill, useTheme } from '../theme';
 
 export default function RootLayout() {
   const { loadPage } = usePageLoader();
   const { goBack } = useHistory();
+  const theme = useTheme();
+  const styles = createStyles(theme);
 
   const currentUrl = useAppStore((s) => s.currentUrl);
   const history = useAppStore((s) => s.history);
   const setDictionary = useAppStore((s) => s.setDictionary);
   const setPinyinDictionary = useAppStore((s) => s.setPinyinDictionary);
   const loading = useAppStore((s) => s.loading);
-  const { fullSite, libraryDrawerOpen, setLibraryDrawerOpen, toggleCss, setUrlInputFocus } = useWebPageStore();
+  const {
+    fullSite,
+    libraryDrawerOpen,
+    setLibraryDrawerOpen,
+    toggleCss,
+    setUrlInputFocus,
+    urlInputFocus,
+  } = useWebPageStore();
   const { width } = useWindowDimensions();
   const drawerWidth = Math.min(width * 0.88, 420);
   const drawerX = useRef(new Animated.Value(-drawerWidth)).current;
@@ -66,18 +76,21 @@ export default function RootLayout() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <StatusBar style="dark" />
+      <StatusBar style={theme.statusBar} />
       <View style={styles.controlBar}>
         <View style={styles.leadingActions}>
-          <LibraryToggleButton />
+          {!urlInputFocus && <LibraryToggleButton />}
         </View>
         <View style={styles.urlInput}>
           <SearchInput
             placeholder="Input chinese website url"
             url={safeCurrentUrl}
             onSubmit={loadPage}
-            onFocus={setUrlInputFocus}
-            backButtonEnabled={backButtonEnabled}
+            onFocus={(isFocus) => {
+              setUrlInputFocus(isFocus);
+              if (isFocus) setLibraryDrawerOpen(false);
+            }}
+            backButtonEnabled={!urlInputFocus && backButtonEnabled}
             onBack={goBack}
             fullSite={fullSite}
             onToggleReaderMode={toggleCss}
@@ -106,57 +119,54 @@ export default function RootLayout() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f9f9fb',
-  },
-  controlBar: {
-    minHeight: 56,
-    paddingHorizontal: 6,
-    paddingVertical: 8,
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    backgroundColor: '#f9f9fb',
-    borderBottomColor: '#e5e5ea',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  leadingActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 4,
-  },
-  urlInput: {
-    flex: 1,
-    flexDirection: 'row',
-    marginRight: 2,
-  },
-  trailingActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: 2,
-  },
-  content: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-  drawerBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(21, 18, 15, 0.28)',
-    zIndex: 29,
-  },
-  drawer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    bottom: 0,
-    backgroundColor: '#f6f3ee',
-    zIndex: 30,
-    shadowColor: '#1e1611',
-    shadowOpacity: 0.2,
-    shadowRadius: 18,
-    shadowOffset: { width: 8, height: 0 },
-    elevation: 10,
-  },
-});
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: theme.colors.backgroundElevated,
+    },
+    controlBar: {
+      minHeight: 56,
+      paddingHorizontal: 6,
+      paddingVertical: 8,
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      alignItems: 'center',
+      backgroundColor: theme.colors.backgroundElevated,
+      borderBottomColor: theme.colors.borderMuted,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+    },
+    leadingActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginRight: 4,
+    },
+    urlInput: {
+      flex: 1,
+      flexDirection: 'row',
+      marginRight: 2,
+    },
+    trailingActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginLeft: 2,
+    },
+    content: {
+      flex: 1,
+      backgroundColor: theme.colors.backgroundCanvas,
+    },
+    drawerBackdrop: {
+      ...absoluteFill,
+      backgroundColor: theme.colors.overlay,
+      zIndex: 29,
+    },
+    drawer: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      bottom: 0,
+      backgroundColor: theme.colors.background,
+      zIndex: 30,
+      ...theme.shadows.drawer,
+    },
+  });

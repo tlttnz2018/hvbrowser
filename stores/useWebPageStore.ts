@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+export type ThemeModePreference = 'system' | 'light' | 'dark';
+
 interface WebPageState {
   urlInputFocus: boolean;
   moreMenu: boolean;
@@ -7,6 +9,7 @@ interface WebPageState {
   fontSize: number;
   isHV: boolean;
   libraryDrawerOpen: boolean;
+  themeMode: ThemeModePreference;
 
   // actions
   setUrlInputFocus: (focus: boolean) => void;
@@ -17,6 +20,7 @@ interface WebPageState {
   resetFont: () => void;
   toggleHV: () => void;
   setLibraryDrawerOpen: (open: boolean) => void;
+  setThemeMode: (mode: ThemeModePreference) => void;
 }
 
 export const useWebPageStore = create<WebPageState>()((set, get) => ({
@@ -26,6 +30,7 @@ export const useWebPageStore = create<WebPageState>()((set, get) => ({
   fontSize: 1,
   isHV: true,
   libraryDrawerOpen: true,
+  themeMode: 'system',
 
   setUrlInputFocus: (urlInputFocus) => set({ urlInputFocus }),
 
@@ -48,4 +53,6 @@ export const useWebPageStore = create<WebPageState>()((set, get) => ({
   toggleHV: () => set((state) => ({ isHV: !state.isHV })),
 
   setLibraryDrawerOpen: (libraryDrawerOpen) => set({ libraryDrawerOpen }),
+
+  setThemeMode: (themeMode) => set({ themeMode }),
 }));

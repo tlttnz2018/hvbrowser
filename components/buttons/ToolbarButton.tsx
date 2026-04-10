@@ -1,11 +1,15 @@
 import React from 'react';
 import { StyleSheet, TouchableOpacity, TouchableOpacityProps } from 'react-native';
+import { Theme, useTheme } from '../../theme';
 
 interface ToolbarButtonProps extends TouchableOpacityProps {
   variant?: 'secondary' | 'primary' | 'quiet';
 }
 
 export default function ToolbarButton({ children, variant = 'secondary', style, ...props }: ToolbarButtonProps) {
+  const theme = useTheme();
+  const styles = createStyles(theme);
+
   return (
     <TouchableOpacity
       accessibilityRole="button"
@@ -23,7 +27,8 @@ export default function ToolbarButton({ children, variant = 'secondary', style, 
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
   button: {
     minWidth: 40,
     height: 40,
@@ -31,14 +36,14 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f2f2f7',
-    borderColor: '#d1d1d6',
+    backgroundColor: theme.colors.inputBackground,
+    borderColor: theme.colors.inputBorder,
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: theme.radius.md,
   },
   primaryButton: {
-    backgroundColor: '#7a4f28',
-    borderColor: '#7a4f28',
+    backgroundColor: theme.colors.accent,
+    borderColor: theme.colors.accent,
   },
   quietButton: {
     backgroundColor: 'transparent',

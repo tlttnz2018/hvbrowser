@@ -1,3 +1,5 @@
+import type { Theme } from '../theme';
+
 function escapeAttribute(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 }
@@ -29,16 +31,16 @@ export function injectBaseHref(html: string, pageUrl: string): string {
   return `<head>${baseTag}</head>${html}`;
 }
 
-function buildReaderStyle(fontSize: number): string {
+function buildReaderStyle(fontSize: number, readerTheme: Theme['reader']): string {
   return [
     '<style>',
-    'html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; color: #111 !important; }',
+    `html, body { margin: 0 !important; padding: 0 !important; background: ${readerTheme.background} !important; color: ${readerTheme.text} !important; }`,
     `body { padding: 16px 14px 24px !important; font-size: ${fontSize}em !important; line-height: 1.75 !important; word-break: break-word !important; }`,
     '* { max-width: 100% !important; box-sizing: border-box !important; }',
     'table { width: 100% !important; display: block !important; }',
     'tr, td, tbody, thead { display: block !important; width: 100% !important; }',
     'img { height: auto !important; }',
-    'a { color: #0a58ca !important; text-decoration: none !important; }',
+    `a { color: ${readerTheme.link} !important; text-decoration: none !important; }`,
     'br { content: ""; display: block; margin-top: 0.7em; }',
     '</style>',
   ].join('');
@@ -123,12 +125,12 @@ function annotateChineseTextWithPinyin(
   return output;
 }
 
-export function stripPresentationHtml(html: string, fontSize: number): string {
+export function stripPresentationHtml(html: string, fontSize: number, readerTheme: Theme['reader']): string {
   const output = stripPresentationMarkup(html);
-  return injectIntoHead(output, buildReaderStyle(fontSize));
+  return injectIntoHead(output, buildReaderStyle(fontSize, readerTheme));
 }
 
-function buildTooltipEnhancements(): string {
+function buildTooltipEnhancements(readerTheme: Theme['reader']): string {
   return [
     '<style>',
     '.hv-word { cursor: pointer; }',
@@ -138,9 +140,9 @@ function buildTooltipEnhancements(): string {
     '  left: 0;',
     '  top: 0;',
     '  display: none;',
-    '  background: #fff;',
-    '  color: #0b5d1e;',
-    '  border: 2px solid #4e342e;',
+    `  background: ${readerTheme.tooltipBackground};`,
+    `  color: ${readerTheme.tooltipSecondaryText};`,
+    `  border: 2px solid ${readerTheme.tooltipBorder};`,
     '  padding: 6px 10px;',
     '  border-radius: 6px;',
     '  font-size: 1.5em;',
@@ -148,12 +150,12 @@ function buildTooltipEnhancements(): string {
     '  line-height: 1.2;',
     '  white-space: nowrap;',
     '  z-index: 9999;',
-    '  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);',
+    `  box-shadow: 0 2px 8px ${readerTheme.tooltipShadow};`,
     '  pointer-events: none;',
     '}',
     '#hv-tooltip .hv-tooltip-line { display: block; white-space: nowrap; }',
-    '#hv-tooltip .hv-tooltip-line:first-child { color: #0d3b66; }',
-    '#hv-tooltip .hv-tooltip-line + .hv-tooltip-line { margin-top: 2px; color: #0b5d1e; }',
+    `#hv-tooltip .hv-tooltip-line:first-child { color: ${readerTheme.tooltipPrimaryText}; }`,
+    `#hv-tooltip .hv-tooltip-line + .hv-tooltip-line { margin-top: 2px; color: ${readerTheme.tooltipSecondaryText}; }`,
     '</style>',
     '<script>',
     '(function() {',
@@ -211,14 +213,15 @@ export function stripPresentationHtmlWithHvTooltips(
   html: string,
   fontSize: number,
   dictionary: Record<string, string>,
-  pinyinDictionary: Record<string, string>
+  pinyinDictionary: Record<string, string>,
+  readerTheme: Theme['reader']
 ): string {
   const output = stripPresentationMarkup(html).replace(/>([^<>]+)</g, (_, text: string) => {
     if (!text.trim()) return `>${text}<`;
     return `>${annotateHanVietTextWithPinyin(text, dictionary, pinyinDictionary)}<`;
   });
 
-  const injected = [buildReaderStyle(fontSize), buildTooltipEnhancements()].join('');
+  const injected = [buildReaderStyle(fontSize, readerTheme), buildTooltipEnhancements(readerTheme)].join('');
 
   return injectIntoHead(output, injected);
 }
@@ -227,14 +230,15 @@ export function stripPresentationHtmlWithChineseTooltips(
   html: string,
   fontSize: number,
   dictionary: Record<string, string>,
-  pinyinDictionary: Record<string, string>
+  pinyinDictionary: Record<string, string>,
+  readerTheme: Theme['reader']
 ): string {
   const output = stripPresentationMarkup(html).replace(/>([^<>]+)</g, (_, text: string) => {
     if (!text.trim()) return `>${text}<`;
     return `>${annotateChineseTextWithPinyin(text, dictionary, pinyinDictionary)}<`;
   });
 
-  const injected = [buildReaderStyle(fontSize), buildTooltipEnhancements()].join('');
+  const injected = [buildReaderStyle(fontSize, readerTheme), buildTooltipEnhancements(readerTheme)].join('');
 
   return injectIntoHead(output, injected);
 }

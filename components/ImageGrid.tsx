@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Theme, absoluteFill, useTheme } from '../theme';
 
 export interface SiteItem {
   uri?: ImageSourcePropType;
@@ -54,6 +55,8 @@ function SwipeableBookmarkListItem({
   onRemoveBookmark,
   onLongPressRemove,
 }: SwipeableBookmarkListItemProps) {
+  const theme = useTheme();
+  const styles = createStyles(theme);
   const translateX = useRef(new Animated.Value(0)).current;
 
   const resetPosition = () => {
@@ -138,6 +141,8 @@ function ImageGrid({
   lastViewUrl,
   headerComponent,
 }: ImageGridProps) {
+  const theme = useTheme();
+  const styles = createStyles(theme);
   const data: SiteItem[] =
     items ||
     [
@@ -186,24 +191,25 @@ function ImageGrid({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: Theme) =>
+  StyleSheet.create({
   listContent: {
-    paddingHorizontal: 4,
+    paddingHorizontal: theme.spacing.xxs,
     paddingBottom: 18,
   },
   listDeleteBackground: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 18,
-    backgroundColor: '#8c2f39',
+    ...absoluteFill,
+    borderRadius: theme.radius.xl,
+    backgroundColor: theme.colors.surfaceDanger,
     alignItems: 'flex-end',
     justifyContent: 'center',
     paddingRight: 22,
   },
   listDeleteBackgroundDisabled: {
-    backgroundColor: '#d9d0c4',
+    backgroundColor: theme.colors.disabled,
   },
   listDeleteText: {
-    color: '#fff',
+    color: theme.colors.textDanger,
     fontSize: 12,
     letterSpacing: 0.4,
     fontWeight: '700',
@@ -213,15 +219,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#dccfbf',
-    borderRadius: 18,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.xl,
     padding: 12,
-    backgroundColor: '#fffdf8',
-    shadowColor: '#49311a',
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
+    backgroundColor: theme.colors.surface,
+    ...theme.shadows.md,
   },
   listItemGap: {
     marginTop: 12,
@@ -232,11 +234,11 @@ const styles = StyleSheet.create({
     marginRight: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 14,
-    backgroundColor: '#f3ecdf',
+    borderRadius: theme.radius.lg,
+    backgroundColor: theme.colors.surfaceMuted,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#eadfce',
+    borderColor: theme.colors.borderMuted,
   },
   listImage: {
     width: '100%',
@@ -245,7 +247,7 @@ const styles = StyleSheet.create({
   listFallback: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#8a5a2b',
+    color: theme.colors.textAccent,
   },
   listTextWrap: {
     flex: 1,
@@ -254,12 +256,12 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 22,
     fontWeight: '700',
-    color: '#211b17',
+    color: theme.colors.text,
     marginBottom: 6,
   },
   listUrl: {
     fontSize: 12,
-    color: '#7b6c61',
+    color: theme.colors.textSubtle,
   },
 });
 
