@@ -37,6 +37,7 @@ interface AppState {
   pushHistory: (url: string) => void;
   popHistory: () => string | undefined;
   toggleBookmark: () => void;
+  removeBookmark: (url: string) => void;
   setDictionary: (dict: Record<string, string>) => void;
 }
 
@@ -98,6 +99,9 @@ export const useAppStore = create<AppState>()(
           set({ bookmarks: [...bookmarks, { url: currentUrl, desc }] });
         }
       },
+
+      removeBookmark: (url) =>
+        set((state) => ({ bookmarks: state.bookmarks.filter((bookmark) => bookmark.url !== url) })),
 
       setDictionary: (dictionary) => set({ dictionary }),
     }),

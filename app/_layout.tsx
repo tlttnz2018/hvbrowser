@@ -17,6 +17,7 @@ import BookmarkToggleButton from '../components/buttons/BookmarkToggleButton';
 import HVToggleButton from '../components/buttons/HVToggleButton';
 import MoreToggleButton from '../components/buttons/MoreToggleButton';
 import HomeToggleButton from '../components/buttons/HomeToggleButton';
+import HomeSitesViewToggleButton from '../components/buttons/HomeSitesViewToggleButton';
 import WebTextToolbar from '../components/toolbars/WebTextToolbar';
 
 import { useAppStore } from '../stores/useAppStore';
@@ -37,6 +38,7 @@ export default function RootLayout() {
   const setUrlInputFocus = useWebPageStore((s) => s.setUrlInputFocus);
 
   const isWebScreen = pathname === '/web';
+  const isHomeScreen = pathname === '/';
   const showMoreMenu = moreMenu && isWebScreen && !loading;
 
   // Load dictionary on mount
@@ -74,6 +76,7 @@ export default function RootLayout() {
         <BookmarkToggleButton />
         <HVToggleButton />
         <MoreToggleButton />
+        {isHomeScreen && <HomeSitesViewToggleButton />}
         <HomeToggleButton />
       </View>
       {showMoreMenu && <WebTextToolbar reloadPage={reloadPage} />}

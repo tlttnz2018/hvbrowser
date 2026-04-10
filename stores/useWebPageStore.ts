@@ -6,6 +6,7 @@ interface WebPageState {
   fullSite: boolean;
   fontSize: number;
   isHV: boolean;
+  homeSitesView: 'grid' | 'list';
 
   // actions
   setUrlInputFocus: (focus: boolean) => void;
@@ -15,6 +16,7 @@ interface WebPageState {
   decreaseFont: () => void;
   resetFont: () => void;
   toggleHV: () => void;
+  toggleHomeSitesView: () => void;
 }
 
 export const useWebPageStore = create<WebPageState>()((set, get) => ({
@@ -23,6 +25,7 @@ export const useWebPageStore = create<WebPageState>()((set, get) => ({
   fullSite: true,
   fontSize: 1,
   isHV: true,
+  homeSitesView: 'grid',
 
   setUrlInputFocus: (urlInputFocus) => set({ urlInputFocus }),
 
@@ -43,4 +46,7 @@ export const useWebPageStore = create<WebPageState>()((set, get) => ({
   resetFont: () => set({ fontSize: 1 }),
 
   toggleHV: () => set((state) => ({ isHV: !state.isHV })),
+
+  toggleHomeSitesView: () =>
+    set((state) => ({ homeSitesView: state.homeSitesView === 'grid' ? 'list' : 'grid' })),
 }));
