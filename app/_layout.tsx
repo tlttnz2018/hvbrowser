@@ -1,4 +1,3 @@
-import '../global.css';
 import { Buffer } from 'buffer';
 // Polyfill Buffer for iconv-lite on Hermes
 if (typeof global !== 'undefined') {
