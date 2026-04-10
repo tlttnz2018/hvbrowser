@@ -3,8 +3,9 @@ import { useRouter } from 'expo-router';
 import { useAppStore } from '../stores/useAppStore';
 import { useWebPageStore } from '../stores/useWebPageStore';
 import { downloadHtmlPage, convertHtmlPageToHV } from '../utils/downloader';
-import { cleanupHtml, updateRelativeUrl } from '../utils/cleanup';
+import { cleanupHtml } from '../utils/cleanup';
 import { fixUrl } from '../utils/normalize-url';
+import { injectBaseHref } from '../utils/webview-html';
 
 export function usePageLoader() {
   const router = useRouter();
@@ -45,15 +46,15 @@ export function usePageLoader() {
       try {
         const dictionary = useAppStore.getState().dictionary;
         const htmlContent = await downloadHtmlPage(url);
-        const htmlNormalize = await updateRelativeUrl(htmlContent, url);
         const htmlClean = await cleanupHtml(htmlContent);
-        const htmlForHv = await updateRelativeUrl(htmlClean || '', url);
-        const htmlConvert = await convertHtmlPageToHV(htmlForHv, dictionary);
+        const htmlOrig = injectBaseHref(htmlContent, url);
+        const htmlConvert = await convertHtmlPageToHV(htmlClean || '', dictionary);
+        const htmlHv = injectBaseHref(htmlConvert, url);
 
         const titleMatch = htmlConvert.match(/<title>([^<]+)<\/title>/);
         if (titleMatch) setWebPageTitle(titleMatch[1]);
         setLastViewUrl(url);
-        setHtmlContent('\ufeff' + htmlNormalize, '\ufeff' + htmlConvert);
+        setHtmlContent('\ufeff' + htmlOrig, '\ufeff' + htmlHv);
         setError(false);
       } catch (e) {
         console.error('Page load error:', e);

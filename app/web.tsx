@@ -5,6 +5,7 @@ import { useAppStore } from '../stores/useAppStore';
 import { useWebPageStore } from '../stores/useWebPageStore';
 import { usePageLoader } from '../hooks/usePageLoader';
 import { extractBaseUrl } from '../utils/normalize-url';
+import { stripPresentationHtml } from '../utils/webview-html';
 
 export default function WebScreen() {
   const webViewRef = useRef<WebView>(null);
@@ -21,11 +22,11 @@ export default function WebScreen() {
 
   // Inject font size whenever it changes
   useEffect(() => {
-    if (webViewRef.current) {
+    if (webViewRef.current && fullSite) {
       const script = `document.body.style.fontSize = "${fontSize}em"; true;`;
       webViewRef.current.injectJavaScript(script);
     }
-  }, [fontSize]);
+  }, [fontSize, fullSite]);
 
   const initialScript = `(function() { document.body.style.fontSize = "${fontSize}em"; })();`;
 
@@ -58,7 +59,8 @@ export default function WebScreen() {
     [currentUrl, loadPage]
   );
 
-  const htmlSource = isHV ? htmlHV : htmlOrig;
+  const activeHtml = isHV ? htmlHV : htmlOrig;
+  const htmlSource = fullSite ? activeHtml : stripPresentationHtml(activeHtml, fontSize);
   const baseUrl = fullSite && currentUrl ? extractBaseUrl(currentUrl) : undefined;
 
   return (
