@@ -1005,13 +1005,29 @@ export async function cleanupHtml(text: string): Promise<string | null> {
 
 export async function updateRelativeUrl(text: string, baseUrl: string): Promise<string> {
   const doc = parseDocument(text, { decodeEntities: true });
-  const aTags = findAll((elem) => (elem as Element).name === 'a', doc.children) as Element[];
 
-  aTags.forEach((elem) => {
-    const hrefLink = getAttributeValue(elem, 'href') || '';
-    const newHref = absolute(baseUrl, hrefLink);
+  // Tag → attribute pairs that hold URLs
+  const urlAttrs: Record<string, string> = {
+    a: 'href',
+    link: 'href',
+    script: 'src',
+    img: 'src',
+    source: 'src',
+    iframe: 'src',
+    form: 'action',
+  };
+
+  const tags = findAll(
+    (elem) => (elem as Element).name in urlAttrs,
+    doc.children
+  ) as Element[];
+
+  tags.forEach((elem) => {
+    const attr = urlAttrs[elem.name];
+    const val = getAttributeValue(elem, attr) || '';
+    const newVal = absolute(baseUrl, val);
     elem.attribs = elem.attribs || {};
-    elem.attribs.href = newHref;
+    elem.attribs[attr] = newVal;
   });
 
   return render(doc, { decodeEntities: false });
