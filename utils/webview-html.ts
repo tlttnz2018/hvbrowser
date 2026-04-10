@@ -190,6 +190,8 @@ function buildTooltipEnhancements(): string {
     '  document.addEventListener("click", function(event) {',
     '    var current = event.target && event.target.closest ? event.target.closest(".hv-word") : null;',
     '    if (!current) { hideTooltip(); return; }',
+    '    var link = current.closest ? current.closest("a") : null;',
+    '    if (link) { hideTooltip(); return; }',
     '    var active = document.querySelector(".hv-word.active");',
     '    if (tooltip.style.display === "block" && active === current) {',
     '      hideTooltip();',
