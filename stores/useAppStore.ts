@@ -22,6 +22,7 @@ interface AppState {
   history: string[];
   bookmarks: Bookmark[];
   dictionary: Record<string, string>;
+  pinyinDictionary: Record<string, string>;
 
   // computed helpers
   isCurrentBookmarked: () => boolean;
@@ -39,6 +40,7 @@ interface AppState {
   toggleBookmark: () => void;
   removeBookmark: (url: string) => void;
   setDictionary: (dict: Record<string, string>) => void;
+  setPinyinDictionary: (dict: Record<string, string>) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -54,6 +56,7 @@ export const useAppStore = create<AppState>()(
       history: [],
       bookmarks: [],
       dictionary: {},
+      pinyinDictionary: {},
 
       isCurrentBookmarked: () => {
         const { currentUrl, webPageTitle, bookmarks } = get();
@@ -104,6 +107,7 @@ export const useAppStore = create<AppState>()(
         set((state) => ({ bookmarks: state.bookmarks.filter((bookmark) => bookmark.url !== url) })),
 
       setDictionary: (dictionary) => set({ dictionary }),
+      setPinyinDictionary: (pinyinDictionary) => set({ pinyinDictionary }),
     }),
     {
       name: 'hv-browser-storage',

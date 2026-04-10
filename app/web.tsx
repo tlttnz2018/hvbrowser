@@ -5,7 +5,11 @@ import { useAppStore } from '../stores/useAppStore';
 import { useWebPageStore } from '../stores/useWebPageStore';
 import { usePageLoader } from '../hooks/usePageLoader';
 import { extractBaseUrl } from '../utils/normalize-url';
-import { stripPresentationHtml } from '../utils/webview-html';
+import {
+  stripPresentationHtml,
+  stripPresentationHtmlWithChineseTooltips,
+  stripPresentationHtmlWithHvTooltips,
+} from '../utils/webview-html';
 
 export default function WebScreen() {
   const webViewRef = useRef<WebView>(null);
@@ -15,6 +19,8 @@ export default function WebScreen() {
   const htmlOrig = useAppStore((s) => s.htmlOrig);
   const htmlHV = useAppStore((s) => s.htmlHV);
   const currentUrl = useAppStore((s) => s.currentUrl);
+  const dictionary = useAppStore((s) => s.dictionary);
+  const pinyinDictionary = useAppStore((s) => s.pinyinDictionary);
 
   const isHV = useWebPageStore((s) => s.isHV);
   const fullSite = useWebPageStore((s) => s.fullSite);
@@ -60,7 +66,11 @@ export default function WebScreen() {
   );
 
   const activeHtml = isHV ? htmlHV : htmlOrig;
-  const htmlSource = fullSite ? activeHtml : stripPresentationHtml(activeHtml, fontSize);
+  const htmlSource = fullSite
+    ? activeHtml
+    : isHV
+      ? stripPresentationHtmlWithHvTooltips(htmlOrig, fontSize, dictionary, pinyinDictionary)
+      : stripPresentationHtmlWithChineseTooltips(htmlOrig, fontSize, dictionary, pinyinDictionary);
   const baseUrl = fullSite && currentUrl ? extractBaseUrl(currentUrl) : undefined;
 
   return (

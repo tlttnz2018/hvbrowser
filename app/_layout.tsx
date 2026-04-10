@@ -33,6 +33,7 @@ export default function RootLayout() {
   const currentUrl = useAppStore((s) => s.currentUrl);
   const history = useAppStore((s) => s.history);
   const setDictionary = useAppStore((s) => s.setDictionary);
+  const setPinyinDictionary = useAppStore((s) => s.setPinyinDictionary);
   const moreMenu = useWebPageStore((s) => s.moreMenu);
   const loading = useAppStore((s) => s.loading);
   const setUrlInputFocus = useWebPageStore((s) => s.setUrlInputFocus);
@@ -44,8 +45,10 @@ export default function RootLayout() {
   // Load dictionary on mount
   useEffect(() => {
     const dict = require('../data/DataHanVietUni.json') as Record<string, string>;
+    const pinyinDict = require('../data/PinyinData.json') as Record<string, string>;
     setDictionary(dict);
-  }, [setDictionary]);
+    setPinyinDictionary(pinyinDict);
+  }, [setDictionary, setPinyinDictionary]);
 
   const safeCurrentUrl =
     currentUrl.indexOf('Bundle/Application') === -1 ? currentUrl : '';
