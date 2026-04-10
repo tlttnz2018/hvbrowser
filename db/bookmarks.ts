@@ -188,6 +188,8 @@ export async function ensureBookmarkDbReady() {
       const migrator = new Migrator({
         db: bookmarkDb,
         provider: migrationProvider,
+        migrationTableName: 'bookmark_kysely_migrations',
+        migrationLockTableName: 'bookmark_kysely_migration_lock',
       });
       const { error } = await migrator.migrateToLatest();
 

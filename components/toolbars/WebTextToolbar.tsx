@@ -2,6 +2,8 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { FontAwesome6 } from '@expo/vector-icons';
 import ToolbarButton from '../buttons/ToolbarButton';
+import { useOfflineDownloads } from '../../hooks/useOfflineDownloads';
+import { useAppStore } from '../../stores/useAppStore';
 import { useWebPageStore } from '../../stores/useWebPageStore';
 import { Theme, useTheme } from '../../theme';
 
@@ -12,13 +14,36 @@ interface WebTextToolbarProps {
 export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
   const theme = useTheme();
   const styles = createStyles(theme);
+  const { startDownloadFromCurrentPage } = useOfflineDownloads();
   const { moreMenu, toggleMoreMenu, decreaseFont, resetFont, increaseFont, setThemeMode } = useWebPageStore();
+  const currentUrl = useAppStore((state) => state.currentUrl);
+  const activeDownloadId = useAppStore((state) => state.activeDownloadId);
+  const downloadQueue = useAppStore((state) => state.downloadQueue);
+  const currentChapter = useAppStore((state) => state.getOfflineChapterByUrlFromState(currentUrl));
   const nextThemeMode = theme.mode === 'dark' ? 'light' : 'dark';
+  const downloadLabel = currentChapter?.downloadStatus === 'downloaded'
+    ? 'saved'
+    : currentChapter?.downloadStatus === 'downloading'
+      ? 'busy'
+      : currentChapter?.downloadStatus === 'queued'
+        ? 'queued'
+        : activeDownloadId
+          ? `${downloadQueue.length + 1}`
+          : 'DL';
 
   return (
     <View style={styles.container}>
       {moreMenu && (
         <>
+          <ToolbarButton
+            accessibilityLabel="Download page for offline reading. Long press to edit page roles."
+            onPress={() => startDownloadFromCurrentPage(false)}
+            onLongPress={() => startDownloadFromCurrentPage(true)}
+            delayLongPress={250}
+            style={styles.fab}
+          >
+            <Text style={styles.label}>{downloadLabel}</Text>
+          </ToolbarButton>
           <ToolbarButton
             accessibilityLabel={`Switch to ${nextThemeMode} mode`}
             onPress={() => setThemeMode(nextThemeMode)}
@@ -60,7 +85,7 @@ const createStyles = (theme: Theme) =>
     container: {
       position: 'absolute',
       right: 14,
-      bottom: 18,
+      bottom: 34,
       alignItems: 'flex-end',
       zIndex: 20,
     },
@@ -68,6 +93,7 @@ const createStyles = (theme: Theme) =>
       fontSize: 12,
       fontWeight: '600',
       color: theme.colors.text,
+      textTransform: 'uppercase',
     },
     iconLabel: {
       fontSize: 20,

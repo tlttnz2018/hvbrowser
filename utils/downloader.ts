@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { cleanupHtml } from './cleanup';
 
 // iconv-lite and encoding-japanese are only used on native (require Buffer + string_decoder)
 // On web, the browser handles encoding natively via its own TextDecoder
@@ -164,4 +165,35 @@ export async function convertHtmlPageToHV(
     converts.push(hvWord ? hvWord + ' ' : ch);
   }
   return converts.join('');
+}
+
+export function extractHtmlTitle(html: string): string {
+  const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+  return titleMatch?.[1]?.trim() || '';
+}
+
+export function randomQueueRestMs() {
+  return 1000 + Math.floor(Math.random() * 4001);
+}
+
+export async function sleepRandomQueueRest() {
+  const duration = randomQueueRestMs();
+  await new Promise((resolve) => setTimeout(resolve, duration));
+  return duration;
+}
+
+export async function downloadOfflineChapterPayload(
+  url: string,
+  dictionary: Record<string, string>
+): Promise<{ originalHtml: string; convertedHvHtml: string; title: string }> {
+  const originalHtml = await downloadHtmlPage(url);
+  const cleanedHtml = (await cleanupHtml(originalHtml)) || originalHtml;
+  const convertedHvHtml = await convertHtmlPageToHV(cleanedHtml, dictionary);
+  const title = extractHtmlTitle(convertedHvHtml) || extractHtmlTitle(originalHtml) || url;
+
+  return {
+    originalHtml,
+    convertedHvHtml,
+    title,
+  };
 }

@@ -12,6 +12,9 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import BookmarkList , { SiteItem } from './BookmarkList';
+import SegmentedControl from './buttons/SegmentedControl';
+import OfflineLibraryList from './OfflineLibraryList';
+import { deleteOfflineChapter, deleteOfflineStory } from '../db/offline';
 import { useAppStore } from '../stores/useAppStore';
 import { usePageLoader } from '../hooks/usePageLoader';
 import { Theme, absoluteFill, useTheme } from '../theme';
@@ -20,6 +23,7 @@ import { getBookmarkFavicon, getBookmarkImage } from '../utils/bookmarks';
 type FilterKey = 'all' | 'recent' | 'source' | 'bookmark';
 type SortKey = 'recent' | 'title' | 'domain';
 type SortDirection = 'asc' | 'desc';
+type LibraryTabKey = 'library' | 'offline';
 
 const BUILT_IN_SOURCES: SiteItem[] = [
   { uri: require('../assets/17k.png'), url: 'http://h5.17k.com/', desc: '17k', kind: 'source' },
@@ -144,16 +148,23 @@ function PopupMenu<T extends string>({
 }
 
 export default function LibraryView({ onDismiss }: LibraryViewProps) {
-  const { loadPage } = usePageLoader();
+  const { loadPage, loadOfflineChapter } = usePageLoader();
   const theme = useTheme();
   const styles = createStyles(theme);
   const bookmarks = useAppStore((s) => s.bookmarks);
   const lastViewUrl = useAppStore((s) => s.lastViewUrl);
   const removeBookmark = useAppStore((s) => s.removeBookmark);
+  const refreshOfflineLibrary = useAppStore((s) => s.refreshOfflineLibrary);
+  const offlineStories = useAppStore((s) => s.offlineStories);
+  const offlineChaptersByStory = useAppStore((s) => s.offlineChaptersByStory);
+  const activeDownloadId = useAppStore((s) => s.activeDownloadId);
+  const downloadQueue = useAppStore((s) => s.downloadQueue);
+  const downloadQueueLastError = useAppStore((s) => s.downloadQueueLastError);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterKey, setFilterKey] = useState<FilterKey>('all');
   const [sortKey, setSortKey] = useState<SortKey>('title');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [libraryTab, setLibraryTab] = useState<LibraryTabKey>('library');
   const [openMenu, setOpenMenu] = useState<'filter' | 'sort' | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(
     null
@@ -246,15 +257,33 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
 
       <View style={styles.heroCard}>
         <Text style={styles.subtitle}>
-          Your latest page, built-in sources, and bookmarks all live here in one simple list.
+          {libraryTab === 'library'
+            ? 'Your latest page, built-in sources, and bookmarks all live here in one simple list.'
+            : 'Downloaded stories, queue status, and saved chapter links are grouped here for offline reading.'}
         </Text>
         <View style={styles.metaRow}>
           <View style={styles.metaPill}>
-            <Text style={styles.metaLabel}>{filteredItems.length} items</Text>
+            <Text style={styles.metaLabel}>
+              {libraryTab === 'library' ? `${filteredItems.length} items` : `${offlineStories.length} stories`}
+            </Text>
           </View>
         </View>
       </View>
 
+      <View style={styles.tabRow}>
+        <SegmentedControl
+          accessibilityLabel="Library tabs"
+          onChange={(key) => setLibraryTab(key as LibraryTabKey)}
+          options={[
+            { key: 'library', label: 'Sources' },
+            { key: 'offline', label: 'Offline book' },
+          ]}
+          selectedKey={libraryTab}
+        />
+      </View>
+
+      {libraryTab === 'library' && (
+        <>
       <View style={styles.toolbarRow}>
         <View style={styles.searchWrap}>
           <TextInput
@@ -358,22 +387,57 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
           Tap to open. Long-press or swipe bookmarked items to remove them.
         </Text>
       </View>
+        </>
+      )}
+      {libraryTab === 'offline' && (
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Offline book</Text>
+          <Text style={styles.sectionCaption}>
+            Expand a story to see queued, downloading, downloaded, and failed chapters.
+          </Text>
+        </View>
+      )}
     </Pressable>
   );
 
   return (
     <View style={styles.screen}>
-      <BookmarkList
-        items={filteredItems}
-        onPressImage={(url) => {
-          onDismiss?.();
-          loadPage(url);
-        }}
-        onRemoveBookmark={removeBookmark}
-        bookmarkStore={bookmarks}
-        lastViewUrl={lastViewUrl}
-        headerComponent={header}
-      />
+      {libraryTab === 'library' ? (
+        <BookmarkList
+          items={filteredItems}
+          onPressImage={(url) => {
+            onDismiss?.();
+            loadPage(url);
+          }}
+          onRemoveBookmark={removeBookmark}
+          bookmarkStore={bookmarks}
+          lastViewUrl={lastViewUrl}
+          headerComponent={header}
+        />
+      ) : (
+        <View style={styles.offlinePane}>
+          {header}
+          <OfflineLibraryList
+            stories={offlineStories}
+            chaptersByStory={offlineChaptersByStory}
+            activeDownloadId={activeDownloadId}
+            queueCount={downloadQueue.length}
+            lastError={downloadQueueLastError}
+            onRemoveChapter={async (chapterId) => {
+              await deleteOfflineChapter(chapterId);
+              await refreshOfflineLibrary();
+            }}
+            onRemoveStory={async (storyId) => {
+              await deleteOfflineStory(storyId);
+              await refreshOfflineLibrary();
+            }}
+            onOpenChapter={(chapterId) => {
+              onDismiss?.();
+              loadOfflineChapter(chapterId);
+            }}
+          />
+        </View>
+      )}
     </View>
   );
 }
@@ -385,6 +449,9 @@ const createStyles = (theme: Theme) =>
     backgroundColor: theme.colors.background,
     paddingHorizontal: theme.spacing.lg,
     paddingTop: 14,
+  },
+  offlinePane: {
+    flex: 1,
   },
   headerWrap: {
     zIndex: 2,
@@ -436,6 +503,10 @@ const createStyles = (theme: Theme) =>
   toolbarRow: {
     marginTop: 14,
     flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  tabRow: {
+    marginTop: 14,
     alignItems: 'flex-start',
   },
   searchWrap: {

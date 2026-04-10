@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, TextInput, Text, View, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { Keyboard, StyleSheet, TextInput, Text, View, TouchableOpacity } from 'react-native';
 import { Theme, useTheme } from '../theme';
 
 interface SearchInputProps {
@@ -24,11 +24,20 @@ export default function SearchInput({
   onToggleReaderMode,
 }: SearchInputProps) {
   const [text, setText] = useState(url);
+  const inputRef = useRef<TextInput>(null);
   const theme = useTheme();
   const styles = createStyles(theme);
 
   useEffect(() => {
     setText(url);
+    onFocus(false);
+    requestAnimationFrame(() => {
+      Keyboard.dismiss();
+      inputRef.current?.blur();
+    });
+    // Intentionally react only to URL changes so parent callback identity changes
+    // don't retrigger this focus-reset loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
 
   const handleSubmitEditing = () => {
@@ -57,6 +66,7 @@ export default function SearchInput({
         </TouchableOpacity>
       )}
       <TextInput
+        ref={inputRef}
         autoCorrect={false}
         value={text}
         placeholder={placeholder}

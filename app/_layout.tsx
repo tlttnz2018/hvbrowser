@@ -16,26 +16,39 @@ import BookmarkToggleButton from '../components/buttons/BookmarkToggleButton';
 import HVToggleButton from '../components/buttons/HVToggleButton';
 import LibraryToggleButton from '../components/buttons/LibraryToggleButton';
 import LibraryView from '../components/LibraryView';
+import OfflineChapterPicker from '../components/OfflineChapterPicker';
+import OfflinePageRolePicker from '../components/OfflinePageRolePicker';
 import WebTextToolbar from '../components/toolbars/WebTextToolbar';
 
 import { useAppStore } from '../stores/useAppStore';
 import { useWebPageStore } from '../stores/useWebPageStore';
+import { useOfflineDownloads } from '../hooks/useOfflineDownloads';
 import { usePageLoader } from '../hooks/usePageLoader';
 import { useHistory } from '../hooks/useHistory';
+import { ensureOfflineDownloadQueueRunning } from '../utils/offline-download-queue';
 import { Theme, absoluteFill, useTheme } from '../theme';
 
 export default function RootLayout() {
-  const { loadPage } = usePageLoader();
+  const { loadPage, loadOfflineChapter } = usePageLoader();
   const { goBack } = useHistory();
+  const { confirmPageRoles, dismissPageRolePicker, dismissChapterPicker, enqueueSelectedChapters } =
+    useOfflineDownloads();
   const theme = useTheme();
   const styles = createStyles(theme);
 
   const currentUrl = useAppStore((s) => s.currentUrl);
+  const currentContentSource = useAppStore((s) => s.currentContentSource);
+  const currentOfflineChapterId = useAppStore((s) => s.currentOfflineChapterId);
   const history = useAppStore((s) => s.history);
   const initializeBookmarks = useAppStore((s) => s.initializeBookmarks);
+  const initializeOfflineLibrary = useAppStore((s) => s.initializeOfflineLibrary);
   const setDictionary = useAppStore((s) => s.setDictionary);
   const setPinyinDictionary = useAppStore((s) => s.setPinyinDictionary);
   const loading = useAppStore((s) => s.loading);
+  const pageRolePickerVisible = useAppStore((s) => s.pageRolePickerVisible);
+  const chapterPickerVisible = useAppStore((s) => s.chapterPickerVisible);
+  const pendingOfflineAction = useAppStore((s) => s.pendingOfflineAction);
+  const downloadQueue = useAppStore((s) => s.downloadQueue);
   const {
     fullSite,
     libraryDrawerOpen,
@@ -60,7 +73,18 @@ export default function RootLayout() {
     initializeBookmarks().catch((error) => {
       console.error('Bookmark initialization error:', error);
     });
-  }, [initializeBookmarks]);
+    initializeOfflineLibrary().catch((error) => {
+      console.error('Offline initialization error:', error);
+    });
+  }, [initializeBookmarks, initializeOfflineLibrary]);
+
+  useEffect(() => {
+    if (downloadQueue.length > 0) {
+      ensureOfflineDownloadQueueRunning().catch((error) => {
+        console.error('Offline queue error:', error);
+      });
+    }
+  }, [downloadQueue.length]);
 
   const safeCurrentUrl =
     currentUrl.indexOf('Bundle/Application') === -1 ? currentUrl : '';
@@ -69,7 +93,13 @@ export default function RootLayout() {
 
   const reloadPage = () => {
     const url = useAppStore.getState().currentUrl;
-    if (url) loadPage(url);
+    if (!url) return;
+    if (currentContentSource === 'offline' && currentOfflineChapterId) {
+      loadOfflineChapter(currentOfflineChapterId);
+      return;
+    }
+
+    loadPage(url);
   };
 
   useEffect(() => {
@@ -121,6 +151,20 @@ export default function RootLayout() {
         >
           <LibraryView onDismiss={() => setLibraryDrawerOpen(false)} />
         </Animated.View>
+        <OfflinePageRolePicker
+          visible={pageRolePickerVisible}
+          pageTitle={pendingOfflineAction?.pageTitle ?? 'Current page'}
+          initialRoles={pendingOfflineAction?.initialRoles ?? []}
+          onClose={dismissPageRolePicker}
+          onSubmit={confirmPageRoles}
+        />
+        <OfflineChapterPicker
+          visible={chapterPickerVisible}
+          pageTitle={pendingOfflineAction?.pageTitle ?? 'Current page'}
+          candidates={pendingOfflineAction?.chapterCandidates ?? []}
+          onClose={dismissChapterPicker}
+          onSubmit={enqueueSelectedChapters}
+        />
       </View>
     </SafeAreaView>
   );

@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { WebView, WebViewNavigation } from 'react-native-webview';
+import type { ShouldStartLoadRequest } from 'react-native-webview/lib/WebViewTypes';
 import { useAppStore } from '../stores/useAppStore';
 import { useWebPageStore } from '../stores/useWebPageStore';
 import { usePageLoader } from '../hooks/usePageLoader';
@@ -13,7 +14,7 @@ import {
 
 export default function IndexScreen() {
   const webViewRef = useRef<WebView>(null);
-  const { loadPage } = usePageLoader();
+  const { loadPage, loadOfflineChapter } = usePageLoader();
   const theme = useTheme();
   const styles = createStyles(theme);
 
@@ -21,6 +22,8 @@ export default function IndexScreen() {
   const htmlOrig = useAppStore((s) => s.htmlOrig);
   const htmlHV = useAppStore((s) => s.htmlHV);
   const currentUrl = useAppStore((s) => s.currentUrl);
+  const currentContentSource = useAppStore((s) => s.currentContentSource);
+  const getOfflineChapterByUrlFromState = useAppStore((s) => s.getOfflineChapterByUrlFromState);
   const dictionary = useAppStore((s) => s.dictionary);
   const pinyinDictionary = useAppStore((s) => s.pinyinDictionary);
 
@@ -37,11 +40,50 @@ export default function IndexScreen() {
 
   const initialScript = `(function() { document.body.style.fontSize = "${fontSize}em"; })();`;
 
+  const handleShouldStartLoadWithRequest = useCallback(
+    (request: ShouldStartLoadRequest) => {
+      const { url, isTopFrame, navigationType } = request;
+
+      if (
+        !url ||
+        url === currentUrl ||
+        url.indexOf('about') !== -1 ||
+        url.match(/data:/) ||
+        url.indexOf('postMessage') !== -1
+      ) {
+        return true;
+      }
+
+      if (currentContentSource !== 'offline') {
+        return true;
+      }
+
+      if (!isTopFrame) {
+        return true;
+      }
+
+      if (navigationType && navigationType !== 'click') {
+        return true;
+      }
+
+      const offlineChapter = getOfflineChapterByUrlFromState(url);
+      if (offlineChapter) {
+        loadOfflineChapter(offlineChapter.id);
+      } else {
+        loadPage(url);
+      }
+
+      return false;
+    },
+    [currentContentSource, currentUrl, getOfflineChapterByUrlFromState, loadOfflineChapter, loadPage]
+  );
+
   const handleNavigationStateChange = useCallback(
     (navState: WebViewNavigation) => {
       const { url, title, navigationType } = navState;
 
       if (!url || url === currentUrl || !title) return;
+      if (currentContentSource === 'offline') return;
       if (
         url.indexOf('about') !== -1 ||
         url.match(/data:/) ||
@@ -60,7 +102,7 @@ export default function IndexScreen() {
       useAppStore.getState().setHtmlContent('', '');
       loadPage(url);
     },
-    [currentUrl, loadPage]
+    [currentContentSource, currentUrl, loadPage]
   );
 
   const activeHtml = isHV ? htmlHV : htmlOrig;
@@ -69,7 +111,7 @@ export default function IndexScreen() {
     : isHV
       ? stripPresentationHtmlWithHvTooltips(htmlOrig, fontSize, dictionary, pinyinDictionary, theme.reader)
       : stripPresentationHtmlWithChineseTooltips(htmlOrig, fontSize, dictionary, pinyinDictionary, theme.reader);
-  const baseUrl = fullSite && currentUrl ? extractBaseUrl(currentUrl) : undefined;
+  const baseUrl = currentUrl ? extractBaseUrl(currentUrl) : undefined;
 
   return (
     <View style={styles.screen}>
@@ -82,6 +124,7 @@ export default function IndexScreen() {
       )}
       {!loading && (
         <WebView
+          key={`${currentContentSource}:${currentUrl}:${fullSite ? 'full' : 'reader'}:${isHV ? 'hv' : 'orig'}`}
           ref={webViewRef}
           source={{
             html: htmlSource,
@@ -90,6 +133,7 @@ export default function IndexScreen() {
           style={styles.webView}
           mixedContentMode="compatibility"
           injectedJavaScript={initialScript}
+          onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
           onNavigationStateChange={handleNavigationStateChange}
         />
       )}
