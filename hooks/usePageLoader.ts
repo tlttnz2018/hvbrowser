@@ -1,0 +1,78 @@
+import { useCallback } from 'react';
+import { useRouter } from 'expo-router';
+import { useAppStore } from '../stores/useAppStore';
+import { useWebPageStore } from '../stores/useWebPageStore';
+import { downloadHtmlPage, convertHtmlPageToHV } from '../utils/downloader';
+import { cleanupHtml, updateRelativeUrl } from '../utils/cleanup';
+import { fixUrl } from '../utils/normalize-url';
+
+export function usePageLoader() {
+  const router = useRouter();
+  const {
+    setLoading,
+    setError,
+    setHtmlContent,
+    setCurrentUrl,
+    setWebPageTitle,
+    setLastViewUrl,
+    pushHistory,
+  } = useAppStore();
+  const setUrlInputFocus = useWebPageStore((s) => s.setUrlInputFocus);
+
+  const loadPage = useCallback(
+    async (rawUrl: string) => {
+      if (!rawUrl) return;
+      if (
+        rawUrl.indexOf('about') !== -1 ||
+        rawUrl.indexOf('Bundle/Application') !== -1 ||
+        rawUrl.indexOf('postMessage') !== -1
+      ) {
+        return;
+      }
+
+      const currentUrl = useAppStore.getState().currentUrl;
+      const url = fixUrl(currentUrl, rawUrl);
+
+      pushHistory(url);
+      setUrlInputFocus(false);
+      setCurrentUrl(url);
+      setLoading(true);
+      setError(false);
+
+      // Navigate to web screen if not already there
+      router.push('/web');
+
+      try {
+        const dictionary = useAppStore.getState().dictionary;
+        const htmlContent = await downloadHtmlPage(url);
+        const htmlClean = await cleanupHtml(htmlContent);
+        const htmlNormalize = await updateRelativeUrl(htmlClean || '', url);
+        const htmlConvert = await convertHtmlPageToHV(htmlNormalize, dictionary);
+
+        const titleMatch = htmlConvert.match(/<title>([^<]+)<\/title>/);
+        if (titleMatch) setWebPageTitle(titleMatch[1]);
+        setLastViewUrl(url);
+        setHtmlContent('\ufeff' + htmlNormalize, '\ufeff' + htmlConvert);
+        setError(false);
+      } catch (e) {
+        console.error('Page load error:', e);
+        setError(true);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      router,
+      setLoading,
+      setError,
+      setHtmlContent,
+      setCurrentUrl,
+      setWebPageTitle,
+      setLastViewUrl,
+      pushHistory,
+      setUrlInputFocus,
+    ]
+  );
+
+  return { loadPage };
+}

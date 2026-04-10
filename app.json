@@ -1,30 +1,43 @@
 {
   "expo": {
-    "name": "hvbrowser-scaffold",
-    "slug": "hvbrowser-scaffold",
+    "name": "Han Viet Browser",
+    "slug": "hvbrowser2",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.troioi.hvbrowser2",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "com.troioi.hvbrowser2",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      },
-      "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      }
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    }
+    "platforms": ["ios", "android"],
+    "extra": {
+      "eas": {
+        "projectId": "28c31d20-8052-11e9-9fe9-41aa2efe3a53"
+      },
+      "router": {
+        "origin": false
+      }
+    },
+    "scheme": "hvbrowser",
+    "plugins": [
+      "expo-router"
+    ]
   }
 }
