@@ -74,14 +74,36 @@ export default function WebScreen() {
   const baseUrl = fullSite && currentUrl ? extractBaseUrl(currentUrl) : undefined;
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: '#f6f3ee' }}>
       {loading && (
-        <ActivityIndicator
-          animating={loading}
-          color="rgba(0,0,0,0.2)"
-          size="large"
-          style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-        />
+        <View
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'rgba(246,243,238,0.84)',
+            zIndex: 2,
+          }}
+        >
+          <View
+            style={{
+              alignItems: 'center',
+              justifyContent: 'center',
+              paddingHorizontal: 22,
+              paddingVertical: 18,
+              borderRadius: 20,
+              backgroundColor: '#fffdf8',
+              borderWidth: 1,
+              borderColor: '#e3d8c9',
+            }}
+          >
+            <ActivityIndicator animating={loading} color="#8a5a2b" size="small" />
+          </View>
+        </View>
       )}
       {!loading && (
         <WebView
@@ -90,7 +112,7 @@ export default function WebScreen() {
             html: htmlSource,
             baseUrl,
           }}
-          style={{ flex: 1 }}
+          style={{ flex: 1, backgroundColor: '#fffdf8' }}
           mixedContentMode="compatibility"
           injectedJavaScript={initialScript}
           onNavigationStateChange={handleNavigationStateChange}

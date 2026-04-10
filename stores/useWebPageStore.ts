@@ -6,7 +6,8 @@ interface WebPageState {
   fullSite: boolean;
   fontSize: number;
   isHV: boolean;
-  homeSitesView: 'grid' | 'list';
+  libraryLayout: 'grid' | 'list';
+  libraryDrawerOpen: boolean;
 
   // actions
   setUrlInputFocus: (focus: boolean) => void;
@@ -16,16 +17,18 @@ interface WebPageState {
   decreaseFont: () => void;
   resetFont: () => void;
   toggleHV: () => void;
-  toggleHomeSitesView: () => void;
+  toggleLibraryLayout: () => void;
+  setLibraryDrawerOpen: (open: boolean) => void;
 }
 
 export const useWebPageStore = create<WebPageState>()((set, get) => ({
   urlInputFocus: false,
-  moreMenu: true,
+  moreMenu: false,
   fullSite: true,
   fontSize: 1,
   isHV: true,
-  homeSitesView: 'grid',
+  libraryLayout: 'grid',
+  libraryDrawerOpen: true,
 
   setUrlInputFocus: (urlInputFocus) => set({ urlInputFocus }),
 
@@ -47,6 +50,8 @@ export const useWebPageStore = create<WebPageState>()((set, get) => ({
 
   toggleHV: () => set((state) => ({ isHV: !state.isHV })),
 
-  toggleHomeSitesView: () =>
-    set((state) => ({ homeSitesView: state.homeSitesView === 'grid' ? 'list' : 'grid' })),
+  toggleLibraryLayout: () =>
+    set((state) => ({ libraryLayout: state.libraryLayout === 'grid' ? 'list' : 'grid' })),
+
+  setLibraryDrawerOpen: (libraryDrawerOpen) => set({ libraryDrawerOpen }),
 }));

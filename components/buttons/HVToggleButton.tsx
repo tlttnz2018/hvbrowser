@@ -1,7 +1,6 @@
 import React from 'react';
-import { Text } from 'react-native';
 import { usePathname } from 'expo-router';
-import ToolbarButton from './ToolbarButton';
+import SegmentedControl from './SegmentedControl';
 import { useWebPageStore } from '../../stores/useWebPageStore';
 
 export default function HVToggleButton() {
@@ -16,8 +15,17 @@ export default function HVToggleButton() {
   if (!viewWebPage) return null;
 
   return (
-    <ToolbarButton onPress={toggleHV}>
-      <Text>{isHV ? 'HV' : '汉'}</Text>
-    </ToolbarButton>
+    <SegmentedControl
+      accessibilityLabel="Choose reading language mode"
+      compact
+      onChange={(key) => {
+        if ((key === 'hv') !== isHV) toggleHV();
+      }}
+      options={[
+        { key: 'zh', label: '汉' },
+        { key: 'hv', label: 'HV' },
+      ]}
+      selectedKey={isHV ? 'hv' : 'zh'}
+    />
   );
 }

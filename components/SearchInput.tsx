@@ -8,10 +8,9 @@ interface SearchInputProps {
   onFocus: (isFocus: boolean) => void;
   backButtonEnabled: boolean;
   onBack: () => void;
+  fullSite: boolean;
+  onToggleReaderMode: () => void;
 }
-
-const BGWASH = 'rgba(255,255,255,0.8)';
-const DISABLED_WASH = 'rgba(255,255,255,0.25)';
 
 export default function SearchInput({
   placeholder,
@@ -20,9 +19,10 @@ export default function SearchInput({
   onFocus,
   backButtonEnabled,
   onBack,
+  fullSite,
+  onToggleReaderMode,
 }: SearchInputProps) {
   const [text, setText] = useState(url);
-  const [backButtonHide, setBackButtonHide] = useState(false);
 
   useEffect(() => {
     setText(url);
@@ -35,21 +35,27 @@ export default function SearchInput({
 
   const handleFocus = () => {
     onFocus(true);
-    setBackButtonHide(true);
   };
 
   const handleBlur = () => {
     onFocus(false);
-    setBackButtonHide(false);
   };
 
   return (
     <View style={styles.container}>
+      <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+        onPress={onBack}
+        style={backButtonEnabled ? styles.navButton : styles.disabledButton}
+      >
+        <Text style={styles.backLabel}>{'‹'}</Text>
+      </TouchableOpacity>
       <TextInput
         autoCorrect={false}
         value={text}
         placeholder={placeholder}
-        placeholderTextColor="white"
+        placeholderTextColor="#8e8e93"
         underlineColorAndroid="transparent"
         style={styles.textInput}
         clearButtonMode="always"
@@ -58,14 +64,14 @@ export default function SearchInput({
         onFocus={handleFocus}
         onBlur={handleBlur}
       />
-      {!backButtonHide && (
-        <TouchableOpacity
-          onPress={onBack}
-          style={backButtonEnabled ? styles.navButton : styles.disabledButton}
-        >
-          <Text>{'⇦'}</Text>
-        </TouchableOpacity>
-      )}
+      <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel={fullSite ? 'Switch to reader mode' : 'Switch to full site mode'}
+        onPress={onToggleReaderMode}
+        style={styles.readerButton}
+      >
+        <Text style={styles.readerLabel}>{fullSite ? '☷' : '◫'}</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -73,39 +79,67 @@ export default function SearchInput({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    height: 30,
+    height: 40,
     flexDirection: 'row',
+    alignItems: 'center',
   },
   textInput: {
     flex: 1,
-    color: 'white',
-    backgroundColor: '#666',
-    marginHorizontal: 5,
-    paddingHorizontal: 10,
-    borderRadius: 5,
+    height: 40,
+    color: '#111827',
+    backgroundColor: '#f2f2f7',
+    marginLeft: 6,
+    paddingHorizontal: 12,
+    paddingLeft: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#d1d1d6',
+    fontSize: 16,
   },
   navButton: {
-    width: 30,
-    padding: 3,
-    marginRight: 3,
-    marginLeft: 3,
+    width: 40,
+    height: 40,
+    marginRight: 2,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: BGWASH,
-    borderColor: '#666',
+    backgroundColor: '#f2f2f7',
+    borderColor: '#d1d1d6',
     borderWidth: 1,
-    borderRadius: 3,
+    borderRadius: 12,
   },
   disabledButton: {
-    width: 30,
-    padding: 3,
-    marginRight: 3,
-    marginLeft: 3,
+    width: 40,
+    height: 40,
+    marginRight: 2,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: DISABLED_WASH,
-    borderColor: '#000',
+    backgroundColor: '#f2f2f7',
+    borderColor: '#e5e5ea',
     borderWidth: 1,
-    borderRadius: 3,
+    borderRadius: 12,
+    opacity: 0.45,
+  },
+  backLabel: {
+    fontSize: 24,
+    lineHeight: 24,
+    color: '#007aff',
+    marginTop: -2,
+  },
+  readerButton: {
+    position: 'absolute',
+    left: 54,
+    top: 4,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    backgroundColor: '#e9e6df',
+  },
+  readerLabel: {
+    fontSize: 18,
+    lineHeight: 18,
+    fontWeight: '700',
+    color: '#6a4522',
   },
 });
