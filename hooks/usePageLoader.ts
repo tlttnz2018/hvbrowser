@@ -15,6 +15,7 @@ export function usePageLoader() {
     setWebPageTitle,
     setLastViewUrl,
     pushHistory,
+    markBookmarkVisited,
   } = useAppStore();
   const setUrlInputFocus = useWebPageStore((s) => s.setUrlInputFocus);
 
@@ -49,6 +50,7 @@ export function usePageLoader() {
         const titleMatch = htmlConvert.match(/<title>([^<]+)<\/title>/);
         if (titleMatch) setWebPageTitle(titleMatch[1]);
         setLastViewUrl(url);
+        await markBookmarkVisited(url);
         setHtmlContent('\ufeff' + htmlOrig, '\ufeff' + htmlHv);
         setError(false);
       } catch (e) {
@@ -66,6 +68,7 @@ export function usePageLoader() {
       setWebPageTitle,
       setLastViewUrl,
       pushHistory,
+      markBookmarkVisited,
       setUrlInputFocus,
     ]
   );

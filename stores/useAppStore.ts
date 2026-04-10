@@ -1,13 +1,18 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  BookmarkRecord,
+  listBookmarks,
+  removeBookmarkByUrl,
+  saveBookmark,
+  touchBookmarkByUrl,
+} from '../db/bookmarks';
+import { truncateBookmarkTitle } from '../utils/bookmarks';
 
-const TITLE_LENGTH = 150;
-const OLD_BOOKMARK_KEY = 'HV_BROWSER_BOOKMARK_STORAGE_KEY';
 const OLD_LASTVIEW_KEY = 'HV_BROWSER_LASTVIEW_STORAGE_KEY';
 
-interface Bookmark {
-  url: string;
+export interface Bookmark extends BookmarkRecord {
   desc: string;
 }
 
@@ -20,6 +25,7 @@ interface AppState {
   webPageTitle: string;
   lastViewUrl: string;
   history: string[];
+  bookmarksHydrated: boolean;
   bookmarks: Bookmark[];
   dictionary: Record<string, string>;
   pinyinDictionary: Record<string, string>;
@@ -37,10 +43,19 @@ interface AppState {
   setLastViewUrl: (url: string) => void;
   pushHistory: (url: string) => void;
   popHistory: () => string | undefined;
-  toggleBookmark: () => void;
-  removeBookmark: (url: string) => void;
+  initializeBookmarks: () => Promise<void>;
+  toggleBookmark: () => Promise<void>;
+  removeBookmark: (url: string) => Promise<void>;
+  markBookmarkVisited: (url: string) => Promise<void>;
   setDictionary: (dict: Record<string, string>) => void;
   setPinyinDictionary: (dict: Record<string, string>) => void;
+}
+
+function toStoreBookmark(bookmark: BookmarkRecord): Bookmark {
+  return {
+    ...bookmark,
+    desc: bookmark.title,
+  };
 }
 
 export const useAppStore = create<AppState>()(
@@ -54,6 +69,7 @@ export const useAppStore = create<AppState>()(
       webPageTitle: '',
       lastViewUrl: '',
       history: [],
+      bookmarksHydrated: false,
       bookmarks: [],
       dictionary: {},
       pinyinDictionary: {},
@@ -91,20 +107,48 @@ export const useAppStore = create<AppState>()(
         return url;
       },
 
-      toggleBookmark: () => {
-        const { currentUrl, webPageTitle, bookmarks, isCurrentBookmarked } = get();
+      initializeBookmarks: async () => {
+        const bookmarks = await listBookmarks();
+        set({
+          bookmarks: bookmarks.map(toStoreBookmark),
+          bookmarksHydrated: true,
+        });
+      },
+
+      toggleBookmark: async () => {
+        const { currentUrl, webPageTitle, isCurrentBookmarked } = get();
         if (!currentUrl || !webPageTitle) return;
 
         if (isCurrentBookmarked()) {
-          set({ bookmarks: bookmarks.filter((b) => b.url !== currentUrl) });
+          await removeBookmarkByUrl(currentUrl);
         } else {
-          const desc = webPageTitle.slice(0, TITLE_LENGTH) + '...';
-          set({ bookmarks: [...bookmarks, { url: currentUrl, desc }] });
+          await saveBookmark({
+            url: currentUrl,
+            title: truncateBookmarkTitle(webPageTitle),
+          });
         }
+
+        const nextBookmarks = await listBookmarks();
+        set({ bookmarks: nextBookmarks.map(toStoreBookmark) });
       },
 
-      removeBookmark: (url) =>
-        set((state) => ({ bookmarks: state.bookmarks.filter((bookmark) => bookmark.url !== url) })),
+      removeBookmark: async (url) => {
+        await removeBookmarkByUrl(url);
+        const bookmarks = await listBookmarks();
+        set({ bookmarks: bookmarks.map(toStoreBookmark) });
+      },
+
+      markBookmarkVisited: async (url) => {
+        await touchBookmarkByUrl(url);
+
+        const { bookmarks } = get();
+        if (!bookmarks.some((bookmark) => bookmark.url === url)) {
+          return;
+        }
+
+        const nextBookmarks = await listBookmarks();
+        set({ bookmarks: nextBookmarks.map(toStoreBookmark) });
+      },
 
       setDictionary: (dictionary) => set({ dictionary }),
       setPinyinDictionary: (pinyinDictionary) => set({ pinyinDictionary }),
@@ -113,18 +157,11 @@ export const useAppStore = create<AppState>()(
       name: 'hv-browser-storage',
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
-        bookmarks: state.bookmarks,
         lastViewUrl: state.lastViewUrl,
       }),
       onRehydrateStorage: () => async (state) => {
-        // One-time migration from old MobX AsyncStorage keys
         try {
-          const oldBookmarks = await AsyncStorage.getItem(OLD_BOOKMARK_KEY);
           const oldLastUrl = await AsyncStorage.getItem(OLD_LASTVIEW_KEY);
-          if (oldBookmarks && state && state.bookmarks.length === 0) {
-            state.bookmarks = JSON.parse(oldBookmarks);
-            await AsyncStorage.removeItem(OLD_BOOKMARK_KEY);
-          }
           if (oldLastUrl && state && !state.lastViewUrl) {
             state.lastViewUrl = oldLastUrl;
             await AsyncStorage.removeItem(OLD_LASTVIEW_KEY);

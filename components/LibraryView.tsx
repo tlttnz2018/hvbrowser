@@ -11,10 +11,11 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import ImageGrid, { SiteItem } from './ImageGrid';
+import BookmarkList , { SiteItem } from './BookmarkList';
 import { useAppStore } from '../stores/useAppStore';
 import { usePageLoader } from '../hooks/usePageLoader';
 import { Theme, absoluteFill, useTheme } from '../theme';
+import { getBookmarkFavicon, getBookmarkImage } from '../utils/bookmarks';
 
 type FilterKey = 'all' | 'recent' | 'source' | 'bookmark';
 type SortKey = 'recent' | 'title' | 'domain';
@@ -41,22 +42,16 @@ const SORT_OPTIONS: Array<{ key: SortKey; label: string }> = [
   { key: 'domain', label: 'Domain' },
 ];
 
-function getBookmarkImage(url: string): SiteItem['uri'] | undefined {
-  const piaotiaMatch = url.match(/^https?:\/\/(?:www\.)?piaotia\.com\/bookinfo\/(\d+)\/(\d+)\.html$/i);
-  if (piaotiaMatch) {
-    const [, categoryId, bookId] = piaotiaMatch;
-    return { uri: `https://www.piaotia.com/files/article/image/${categoryId}/${bookId}/${bookId}s.jpg` };
-  }
-
-  return undefined;
-}
-
 function getDomainLabel(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, '');
   } catch {
     return url;
   }
+}
+
+function getItemTitle(item: SiteItem): string {
+  return typeof item.desc === 'string' ? item.desc : '';
 }
 
 interface LibraryViewProps {
@@ -168,12 +163,20 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
 
   const libraryItems = useMemo<SiteItem[]>(() => {
     const recentItem = lastViewUrl ? [{ url: lastViewUrl, desc: 'Last Open URL', kind: 'recent' as const }] : [];
-    const bookmarkItems = bookmarks.map((bookmark) => ({
-      ...bookmark,
-      uri: getBookmarkImage(bookmark.url),
-      isBookmark: true,
-      kind: 'bookmark' as const,
-    }));
+    const bookmarkItems = bookmarks.map((bookmark) => {
+      const bookmarkImage = bookmark.image || getBookmarkImage(bookmark.url);
+      const bookmarkFavicon = bookmark.favicon || getBookmarkFavicon(bookmark.url);
+
+      return {
+        url: bookmark.url,
+        desc: bookmark.title,
+        uri: bookmarkImage ? { uri: bookmarkImage } : bookmarkFavicon ? { uri: bookmarkFavicon } : undefined,
+        isBookmark: true,
+        kind: 'bookmark' as const,
+        createdAt: bookmark.createdAt,
+        lastAccessedAt: bookmark.lastAccessedAt,
+      };
+    });
 
     return [...recentItem, ...BUILT_IN_SOURCES, ...bookmarkItems];
   }, [bookmarks, lastViewUrl]);
@@ -188,17 +191,23 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
 
     if (query) {
       next = next.filter((item) =>
-        `${item.desc} ${item.url} ${getDomainLabel(item.url)}`.toLowerCase().includes(query)
+        `${getItemTitle(item)} ${item.url} ${getDomainLabel(item.url)}`.toLowerCase().includes(query)
       );
     }
 
     const sorted = [...next];
     if (sortKey === 'title') {
-      sorted.sort((a, b) => a.desc.localeCompare(b.desc));
+      sorted.sort((a, b) => getItemTitle(a).localeCompare(getItemTitle(b)));
     } else if (sortKey === 'domain') {
       sorted.sort((a, b) => getDomainLabel(a.url).localeCompare(getDomainLabel(b.url)));
     } else {
-      const recentWeight = (item: SiteItem) => (item.kind === 'recent' ? 0 : item.kind === 'source' ? 1 : 2);
+      const recentWeight = (item: SiteItem) => {
+        if (item.kind === 'recent') return Number.MAX_SAFE_INTEGER;
+        if (item.lastAccessedAt) return Date.parse(item.lastAccessedAt);
+        if (item.createdAt) return Date.parse(item.createdAt);
+        return 0;
+      };
+
       sorted.sort((a, b) => recentWeight(a) - recentWeight(b));
     }
 
@@ -354,7 +363,7 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
 
   return (
     <View style={styles.screen}>
-      <ImageGrid
+      <BookmarkList
         items={filteredItems}
         onPressImage={(url) => {
           onDismiss?.();

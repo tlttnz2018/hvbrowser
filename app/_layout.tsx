@@ -32,6 +32,7 @@ export default function RootLayout() {
 
   const currentUrl = useAppStore((s) => s.currentUrl);
   const history = useAppStore((s) => s.history);
+  const initializeBookmarks = useAppStore((s) => s.initializeBookmarks);
   const setDictionary = useAppStore((s) => s.setDictionary);
   const setPinyinDictionary = useAppStore((s) => s.setPinyinDictionary);
   const loading = useAppStore((s) => s.loading);
@@ -54,6 +55,12 @@ export default function RootLayout() {
     setDictionary(dict);
     setPinyinDictionary(pinyinDict);
   }, [setDictionary, setPinyinDictionary]);
+
+  useEffect(() => {
+    initializeBookmarks().catch((error) => {
+      console.error('Bookmark initialization error:', error);
+    });
+  }, [initializeBookmarks]);
 
   const safeCurrentUrl =
     currentUrl.indexOf('Bundle/Application') === -1 ? currentUrl : '';

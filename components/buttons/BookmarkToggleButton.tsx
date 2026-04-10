@@ -9,6 +9,7 @@ export default function BookmarkToggleButton() {
   const theme = useTheme();
   const styles = createStyles(theme);
   const urlInputFocus = useWebPageStore((s) => s.urlInputFocus);
+  const bookmarksHydrated = useAppStore((s) => s.bookmarksHydrated);
   const isCurrentBookmarked = useAppStore((s) => s.isCurrentBookmarked);
   const toggleBookmark = useAppStore((s) => s.toggleBookmark);
   const viewWebPage = !urlInputFocus;
@@ -21,6 +22,7 @@ export default function BookmarkToggleButton() {
     <ToolbarButton
       accessibilityLabel={saved ? 'Remove bookmark' : 'Save bookmark'}
       onPress={toggleBookmark}
+      disabled={!bookmarksHydrated}
       variant="quiet"
       style={[styles.button, saved && styles.buttonSaved]}
     >

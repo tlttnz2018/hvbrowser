@@ -17,11 +17,13 @@ export interface SiteItem {
   uri?: ImageSourcePropType;
   url: string;
   desc: string;
+  createdAt?: string;
+  lastAccessedAt?: string;
   isBookmark?: boolean;
   kind?: 'recent' | 'source' | 'bookmark';
 }
 
-interface ImageGridProps {
+interface BookmarkListProps {
   items?: SiteItem[];
   onPressImage: (url: string) => void;
   onRemoveBookmark: (url: string) => void;
@@ -133,14 +135,14 @@ function SwipeableBookmarkListItem({
   );
 }
 
-function ImageGrid({
+function BookmarkList({
   items,
   onPressImage,
   onRemoveBookmark,
   bookmarkStore,
   lastViewUrl,
   headerComponent,
-}: ImageGridProps) {
+}: BookmarkListProps) {
   const theme = useTheme();
   const styles = createStyles(theme);
   const data: SiteItem[] =
@@ -265,4 +267,4 @@ const createStyles = (theme: Theme) =>
   },
 });
 
-export default memo(ImageGrid);
+export default memo(BookmarkList);
