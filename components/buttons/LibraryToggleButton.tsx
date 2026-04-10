@@ -13,8 +13,16 @@ export default function LibraryToggleButton() {
       onPress={() => setLibraryDrawerOpen(!libraryDrawerOpen)}
       variant="primary"
     >
-      <Text style={{ fontSize: 18, lineHeight: 18, fontWeight: '700', color: '#fffdf8' }}>
-        {libraryDrawerOpen ? '×' : '☰'}
+      <Text
+        style={{
+          fontSize: 18,
+          lineHeight: 18,
+          fontWeight: '700',
+          color: '#fffdf8',
+          transform: [{ rotate: libraryDrawerOpen ? '90deg' : '0deg' }],
+        }}
+      >
+        ☰
       </Text>
     </ToolbarButton>
   );

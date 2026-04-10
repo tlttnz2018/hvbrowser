@@ -33,7 +33,7 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
         onPress={toggleMoreMenu}
         style={styles.burgerFab}
       >
-        <Text style={styles.burgerLabel}>{moreMenu ? '×' : '≡'}</Text>
+        <Text style={[styles.burgerLabel, moreMenu && styles.burgerLabelOpen]}>≡</Text>
       </ToolbarButton>
     </View>
   );
@@ -93,5 +93,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#fffdf8',
     marginTop: -1,
+  },
+  burgerLabelOpen: {
+    transform: [{ rotate: '90deg' }],
   },
 });

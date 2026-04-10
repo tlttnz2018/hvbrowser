@@ -1,16 +1,12 @@
 import React from 'react';
-import { usePathname } from 'expo-router';
 import SegmentedControl from './SegmentedControl';
 import { useWebPageStore } from '../../stores/useWebPageStore';
 
 export default function HVToggleButton() {
-  const pathname = usePathname();
   const isHV = useWebPageStore((s) => s.isHV);
   const urlInputFocus = useWebPageStore((s) => s.urlInputFocus);
   const toggleHV = useWebPageStore((s) => s.toggleHV);
-
-  const isWebScreen = pathname === '/web';
-  const viewWebPage = isWebScreen && !urlInputFocus;
+  const viewWebPage = !urlInputFocus;
 
   if (!viewWebPage) return null;
 

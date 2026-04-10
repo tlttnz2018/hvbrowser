@@ -11,7 +11,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import Grid from './Grid';
 
 export interface SiteItem {
   uri?: ImageSourcePropType;
@@ -27,17 +26,8 @@ interface ImageGridProps {
   onRemoveBookmark: (url: string) => void;
   bookmarkStore: SiteItem[];
   lastViewUrl: string;
-  viewMode?: 'grid' | 'list';
   headerComponent?: React.ReactElement;
 }
-
-const SITES: SiteItem[] = [
-  { uri: require('../assets/17k.png'), url: 'http://h5.17k.com/', desc: '17k' },
-  { uri: require('../assets/jiujiu.png'), url: 'http://m.jjxsw.com/', desc: 'Txt99' },
-  { uri: require('../assets/80txt.png'), url: 'http://m.80txt.com/', desc: '80txt' },
-  { uri: require('../assets/tangiang.png'), url: 'http://wap.jjwxc.net/', desc: 'Tấn Giang' },
-  { uri: require('../assets/kanunu8.png'), url: 'http://www.kanunu8.com/', desc: 'Nỗ nỗ' },
-];
 
 function getBookmarkImage(url: string): ImageSourcePropType | undefined {
   const piaotiaMatch = url.match(/^https?:\/\/(?:www\.)?piaotia\.com\/bookinfo\/(\d+)\/(\d+)\.html$/i);
@@ -146,14 +136,12 @@ function ImageGrid({
   onRemoveBookmark,
   bookmarkStore,
   lastViewUrl,
-  viewMode = 'grid',
   headerComponent,
 }: ImageGridProps) {
   const data: SiteItem[] =
     items ||
     [
       { url: lastViewUrl, desc: 'Last Open URL', kind: 'recent' },
-      ...SITES.map((item) => ({ ...item, kind: 'source' as const })),
       ...bookmarkStore.map((bookmark) => ({
         ...bookmark,
         uri: bookmark.uri || getBookmarkImage(bookmark.url),
@@ -161,7 +149,9 @@ function ImageGrid({
         kind: 'bookmark' as const,
       })),
     ];
+
   const getItemKey = (item: SiteItem, index: number) => `${item.url || item.desc || 'site'}-${index}`;
+
   const confirmRemoveBookmark = (item: SiteItem) => {
     if (!item.isBookmark) return;
 
@@ -175,61 +165,6 @@ function ImageGrid({
     );
   };
 
-  const renderItem = ({
-    item,
-    size,
-    marginTop,
-    marginLeft,
-  }: {
-    item: SiteItem;
-    size: number;
-    marginTop: number;
-    marginLeft: number;
-  }) => {
-    const style = {
-      width: size,
-      height: size,
-      marginLeft,
-      marginTop,
-      borderWidth: 1,
-      borderColor: '#dccfbf',
-      borderRadius: 20,
-      padding: 10,
-      backgroundColor: '#fffdf8',
-      shadowColor: '#49311a',
-      shadowOpacity: 0.07,
-      shadowRadius: 12,
-      shadowOffset: { width: 0, height: 6 },
-      elevation: 2,
-    };
-
-    return (
-      <TouchableOpacity
-        activeOpacity={0.75}
-        onPress={() => onPressImage(item.url)}
-        onLongPress={() => confirmRemoveBookmark(item)}
-        style={style}
-      >
-        <View style={styles.tileArtwork}>
-          {!!item.uri ? (
-            <Image source={item.uri} style={styles.image} resizeMode="contain" />
-          ) : (
-            <Text style={styles.tileFallback}>Read</Text>
-          )}
-        </View>
-        {!!item.desc && (
-          <Text numberOfLines={2} style={styles.tileTitle}>
-            {item.desc}
-          </Text>
-        )}
-        <Text numberOfLines={1} style={styles.tileUrl}>
-          {item.url}
-        </Text>
-        {item.isBookmark && <Text style={styles.badge}>Saved</Text>}
-      </TouchableOpacity>
-    );
-  };
-
   const renderListItem = ({ item, index }: { item: SiteItem; index: number }) => (
     <SwipeableBookmarkListItem
       item={item}
@@ -240,34 +175,18 @@ function ImageGrid({
     />
   );
 
-  if (viewMode === 'list') {
-    return (
-      <FlatList
-        data={data}
-        renderItem={renderListItem}
-        keyExtractor={getItemKey}
-        contentContainerStyle={styles.listContent}
-        ListHeaderComponent={headerComponent}
-      />
-    );
-  }
-
   return (
-    <Grid
+    <FlatList
       data={data}
-      renderItem={renderItem}
+      renderItem={renderListItem}
       keyExtractor={getItemKey}
+      contentContainerStyle={styles.listContent}
       ListHeaderComponent={headerComponent}
-      contentContainerStyle={styles.gridContent}
     />
   );
 }
 
 const styles = StyleSheet.create({
-  image: { flex: 1 },
-  gridContent: {
-    paddingBottom: 18,
-  },
   listContent: {
     paddingHorizontal: 4,
     paddingBottom: 18,
@@ -341,47 +260,6 @@ const styles = StyleSheet.create({
   listUrl: {
     fontSize: 12,
     color: '#7b6c61',
-  },
-  tileArtwork: {
-    flex: 1,
-    borderRadius: 16,
-    backgroundColor: '#f3ecdf',
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#eadfce',
-    marginBottom: 10,
-  },
-  tileFallback: {
-    flex: 1,
-    textAlign: 'center',
-    textAlignVertical: 'center',
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#8a5a2b',
-    paddingTop: 24,
-  },
-  tileTitle: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '700',
-    color: '#211b17',
-  },
-  tileUrl: {
-    marginTop: 4,
-    fontSize: 11,
-    lineHeight: 15,
-    color: '#7b6c61',
-  },
-  badge: {
-    marginTop: 8,
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: '#efe2cf',
-    color: '#7a4f28',
-    fontSize: 11,
-    fontWeight: '700',
   },
 });
 

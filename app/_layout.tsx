@@ -8,7 +8,7 @@ if (typeof global !== 'undefined') {
 
 import React, { useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
-import { Slot, usePathname } from 'expo-router';
+import { Slot } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 
@@ -16,8 +16,6 @@ import SearchInput from '../components/SearchInput';
 import BookmarkToggleButton from '../components/buttons/BookmarkToggleButton';
 import HVToggleButton from '../components/buttons/HVToggleButton';
 import LibraryToggleButton from '../components/buttons/LibraryToggleButton';
-import LibraryLayoutToggle from '../components/buttons/LibraryLayoutToggle';
-import WebViewToggleButton from '../components/buttons/WebViewToggleButton';
 import LibraryView from '../components/LibraryView';
 import WebTextToolbar from '../components/toolbars/WebTextToolbar';
 
@@ -27,7 +25,6 @@ import { usePageLoader } from '../hooks/usePageLoader';
 import { useHistory } from '../hooks/useHistory';
 
 export default function RootLayout() {
-  const pathname = usePathname();
   const { loadPage } = usePageLoader();
   const { goBack } = useHistory();
 
@@ -40,9 +37,6 @@ export default function RootLayout() {
   const { width } = useWindowDimensions();
   const drawerWidth = Math.min(width * 0.88, 420);
   const drawerX = useRef(new Animated.Value(-drawerWidth)).current;
-
-  const isWebScreen = pathname === '/web';
-  const isLibraryScreen = pathname === '/';
 
   // Load dictionary on mount
   useEffect(() => {
@@ -76,28 +70,20 @@ export default function RootLayout() {
       <StatusBar style="dark" />
       <View style={styles.controlBar}>
         <View style={styles.leadingActions}>
-          {!isLibraryScreen && <LibraryToggleButton />}
-          {isLibraryScreen && (
-            <>
-              <WebViewToggleButton />
-              <LibraryLayoutToggle />
-            </>
-          )}
+          <LibraryToggleButton />
         </View>
-        {isWebScreen && (
-          <View style={styles.urlInput}>
-            <SearchInput
-              placeholder="Input chinese website url"
-              url={safeCurrentUrl}
-              onSubmit={loadPage}
-              onFocus={setUrlInputFocus}
-              backButtonEnabled={backButtonEnabled}
-              onBack={goBack}
-              fullSite={fullSite}
-              onToggleReaderMode={toggleCss}
-            />
-          </View>
-        )}
+        <View style={styles.urlInput}>
+          <SearchInput
+            placeholder="Input chinese website url"
+            url={safeCurrentUrl}
+            onSubmit={loadPage}
+            onFocus={setUrlInputFocus}
+            backButtonEnabled={backButtonEnabled}
+            onBack={goBack}
+            fullSite={fullSite}
+            onToggleReaderMode={toggleCss}
+          />
+        </View>
         <View style={styles.trailingActions}>
           <HVToggleButton />
           <BookmarkToggleButton />
@@ -105,21 +91,17 @@ export default function RootLayout() {
       </View>
       <View style={styles.content}>
         <Slot />
-        {isWebScreen && !loading && <WebTextToolbar reloadPage={reloadPage} />}
-        {isWebScreen && (
-          <>
-            {libraryDrawerOpen && <Pressable style={styles.drawerBackdrop} onPress={() => setLibraryDrawerOpen(false)} />}
-            <Animated.View
-              pointerEvents={libraryDrawerOpen ? 'auto' : 'none'}
-              style={[
-                styles.drawer,
-                { width: drawerWidth, transform: [{ translateX: drawerX }] },
-              ]}
-            >
-              <LibraryView onDismiss={() => setLibraryDrawerOpen(false)} />
-            </Animated.View>
-          </>
-        )}
+        {!loading && <WebTextToolbar reloadPage={reloadPage} />}
+        {libraryDrawerOpen && <Pressable style={styles.drawerBackdrop} onPress={() => setLibraryDrawerOpen(false)} />}
+        <Animated.View
+          pointerEvents={libraryDrawerOpen ? 'auto' : 'none'}
+          style={[
+            styles.drawer,
+            { width: drawerWidth, transform: [{ translateX: drawerX }] },
+          ]}
+        >
+          <LibraryView onDismiss={() => setLibraryDrawerOpen(false)} />
+        </Animated.View>
       </View>
     </SafeAreaView>
   );

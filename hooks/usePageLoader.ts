@@ -1,5 +1,4 @@
 import { useCallback } from 'react';
-import { useRouter } from 'expo-router';
 import { useAppStore } from '../stores/useAppStore';
 import { useWebPageStore } from '../stores/useWebPageStore';
 import { downloadHtmlPage, convertHtmlPageToHV } from '../utils/downloader';
@@ -8,7 +7,6 @@ import { fixUrl } from '../utils/normalize-url';
 import { injectBaseHref } from '../utils/webview-html';
 
 export function usePageLoader() {
-  const router = useRouter();
   const {
     setLoading,
     setError,
@@ -40,9 +38,6 @@ export function usePageLoader() {
       setLoading(true);
       setError(false);
 
-      // Navigate to web screen if not already there
-      router.push('/web');
-
       try {
         const dictionary = useAppStore.getState().dictionary;
         const htmlContent = await downloadHtmlPage(url);
@@ -64,7 +59,6 @@ export function usePageLoader() {
       }
     },
     [
-      router,
       setLoading,
       setError,
       setHtmlContent,
