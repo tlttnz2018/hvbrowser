@@ -19,7 +19,13 @@ function Grid<T>({ renderItem, numColumns = 3, itemMargin = StyleSheet.hairlineW
     return renderItem({ ...info, size, marginLeft, marginTop });
   };
 
-  return <FlatList {...(rest as FlatListProps<T>)} renderItem={renderGridItem} />;
+  return (
+    <FlatList
+      {...(rest as FlatListProps<T>)}
+      numColumns={numColumns}
+      renderItem={renderGridItem}
+    />
+  );
 }
 
 export default memo(Grid) as typeof Grid;

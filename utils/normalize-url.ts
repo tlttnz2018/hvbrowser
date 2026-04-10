@@ -21,11 +21,13 @@ export function absolute(current: string, relative: string): string {
   } else if (relative.match(/^[a-z]+:\/\//i)) {
     return relative;
   } else if (relative.match(/^\/\//)) {
-    return 'http:' + relative;
+    const protocolMatch = current.match(/^([a-z]+:)/i);
+    return (protocolMatch?.[1] || 'https:') + relative;
   } else if (relative.match(/^[a-z]+:/i)) {
     return relative;
   } else if (relative.match(/^(www\.|m\.|sj\.|wap\.)/)) {
-    return relative;
+    const protocolMatch = current.match(/^([a-z]+:)/i);
+    return (protocolMatch?.[1] || 'https:') + '//' + relative;
   }
 
   const contextUrl = extractContextUrl(current);

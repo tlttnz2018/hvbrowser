@@ -45,9 +45,10 @@ export function usePageLoader() {
       try {
         const dictionary = useAppStore.getState().dictionary;
         const htmlContent = await downloadHtmlPage(url);
+        const htmlNormalize = await updateRelativeUrl(htmlContent, url);
         const htmlClean = await cleanupHtml(htmlContent);
-        const htmlNormalize = await updateRelativeUrl(htmlClean || '', url);
-        const htmlConvert = await convertHtmlPageToHV(htmlNormalize, dictionary);
+        const htmlForHv = await updateRelativeUrl(htmlClean || '', url);
+        const htmlConvert = await convertHtmlPageToHV(htmlForHv, dictionary);
 
         const titleMatch = htmlConvert.match(/<title>([^<]+)<\/title>/);
         if (titleMatch) setWebPageTitle(titleMatch[1]);
