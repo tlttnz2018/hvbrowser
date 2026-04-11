@@ -60,19 +60,23 @@ function SwipeableBookmarkListItem({
   const theme = useTheme();
   const styles = createStyles(theme);
   const translateX = useRef(new Animated.Value(0)).current;
+  const DELETE_SWIPE_DISTANCE = 72;
+  const DELETE_SWIPE_VELOCITY = -0.35;
+  const MAX_SWIPE_OFFSET = 140;
 
   const resetPosition = () => {
     Animated.spring(translateX, {
       toValue: 0,
       useNativeDriver: true,
       bounciness: 0,
+      speed: 18,
     }).start();
   };
 
   const removeWithAnimation = () => {
     Animated.timing(translateX, {
-      toValue: -140,
-      duration: 140,
+      toValue: -MAX_SWIPE_OFFSET,
+      duration: 120,
       useNativeDriver: true,
     }).start(({ finished }) => {
       if (finished) onRemoveBookmark(item.url);
@@ -83,14 +87,17 @@ function SwipeableBookmarkListItem({
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, gestureState) =>
-          !!item.isBookmark && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && gestureState.dx < -8,
+          !!item.isBookmark && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && gestureState.dx < -4,
+        onPanResponderGrant: () => {
+          translateX.stopAnimation();
+        },
         onPanResponderMove: (_, gestureState) => {
           if (!item.isBookmark) return;
-          translateX.setValue(Math.max(gestureState.dx, -140));
+          translateX.setValue(Math.max(gestureState.dx, -MAX_SWIPE_OFFSET));
         },
         onPanResponderRelease: (_, gestureState) => {
           if (!item.isBookmark) return;
-          if (gestureState.dx < -90) {
+          if (gestureState.dx < -DELETE_SWIPE_DISTANCE || gestureState.vx < DELETE_SWIPE_VELOCITY) {
             removeWithAnimation();
           } else {
             resetPosition();
@@ -98,7 +105,7 @@ function SwipeableBookmarkListItem({
         },
         onPanResponderTerminate: resetPosition,
       }),
-    [item.isBookmark, item.url, onRemoveBookmark, translateX]
+    [DELETE_SWIPE_DISTANCE, DELETE_SWIPE_VELOCITY, MAX_SWIPE_OFFSET, item.isBookmark, item.url, onRemoveBookmark, translateX]
   );
 
   return (
