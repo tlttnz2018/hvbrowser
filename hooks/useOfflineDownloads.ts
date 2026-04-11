@@ -9,6 +9,7 @@ import {
   getOfflineStoryByHomePageUrl,
   getOfflineStoryByIndexPageUrl,
   OfflineStoryRecord,
+  saveOfflineChapter,
   upsertOfflineStory,
 } from '../db/offline';
 import { useAppStore, type OfflineChapterCandidate, type PendingOfflineAction } from '../stores/useAppStore';
@@ -120,9 +121,39 @@ export function useOfflineDownloads() {
     action: PendingOfflineAction,
     options?: { silent?: boolean }
   ) {
+    const state = useAppStore.getState();
+    const chapterTitle = cleanLabel(action.pageTitle, action.currentUrl);
+    const currentHtmlOrig = state.htmlOrig.replace(/^\ufeff/, '');
+    const currentHtmlHv = state.htmlHV.replace(/^\ufeff/, '');
+
+    if (state.currentUrl === action.currentUrl && currentHtmlOrig && currentHtmlHv) {
+      const chapter = await saveOfflineChapter({
+        storyId: story.id,
+        chapterName: chapterTitle,
+        chapterUrl: action.currentUrl,
+        originalHtml: currentHtmlOrig,
+        convertedHvHtml: currentHtmlHv,
+        downloadStatus: 'downloaded',
+        downloadError: null,
+        downloadedAt: new Date().toISOString(),
+      });
+
+      await refreshOfflineLibrary();
+
+      if (!options?.silent) {
+        Alert.alert(
+          'Saved offline',
+          chapter.downloadStatus === 'downloaded'
+            ? 'This chapter was saved from the page already open in the reader.'
+            : 'This chapter was saved for offline reading.'
+        );
+      }
+      return;
+    }
+
     const chapter = await enqueueOfflineChapter({
       storyId: story.id,
-      chapterName: cleanLabel(action.pageTitle, action.currentUrl),
+      chapterName: chapterTitle,
       chapterUrl: action.currentUrl,
     });
     await refreshOfflineLibrary();
