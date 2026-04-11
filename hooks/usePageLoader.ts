@@ -11,6 +11,7 @@ import { injectBaseHref } from '../utils/webview-html';
 export function usePageLoader() {
   const {
     setLoading,
+    setLoadingStage,
     setError,
     setHtmlContent,
     setCurrentUrl,
@@ -39,13 +40,16 @@ export function usePageLoader() {
       pushHistory(url);
       setUrlInputFocus(false);
       setCurrentContentSource('remote');
+      setHtmlContent('', '');
       setCurrentUrl(url);
       setLoading(true);
+      setLoadingStage('downloading');
       setError(false);
 
       try {
         const dictionary = useAppStore.getState().dictionary;
         const htmlContent = await downloadHtmlPage(url);
+        setLoadingStage('converting');
         const htmlClean = await cleanupHtml(htmlContent);
         const htmlOrig = injectBaseHref(htmlContent, url);
         const htmlConvert = await convertHtmlPageToHV(htmlClean || '', dictionary);
@@ -56,16 +60,21 @@ export function usePageLoader() {
         setLastViewUrl(url);
         await markBookmarkVisited(url);
         setHtmlContent('\ufeff' + htmlOrig, '\ufeff' + htmlHv);
+        setLoadingStage('rendering');
         setError(false);
       } catch (e) {
         console.error('Page load error:', e);
         setError(true);
-      } finally {
         setLoading(false);
+      } finally {
+        if (useAppStore.getState().error) {
+          setLoading(false);
+        }
       }
     },
     [
       setLoading,
+      setLoadingStage,
       setError,
       setHtmlContent,
       setCurrentUrl,
@@ -88,8 +97,10 @@ export function usePageLoader() {
 
       setUrlInputFocus(false);
       setLoading(true);
+      setLoadingStage('rendering');
       setError(false);
       setCurrentContentSource('offline', chapter.id);
+      setHtmlContent('', '');
       setCurrentUrl(chapter.chapterUrl);
 
       try {
@@ -103,7 +114,6 @@ export function usePageLoader() {
       } catch (error) {
         console.error('Offline page load error:', error);
         setError(true);
-      } finally {
         setLoading(false);
       }
     },
@@ -114,6 +124,7 @@ export function usePageLoader() {
       setHtmlContent,
       setLastViewUrl,
       setLoading,
+      setLoadingStage,
       setUrlInputFocus,
       setWebPageTitle,
     ],

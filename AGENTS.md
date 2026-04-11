@@ -70,11 +70,18 @@
 - `htmlOrig` and `htmlHV` are the source of truth for rendered content. Keep both in sync when changing page-loading behavior.
 - The app prepends `\ufeff` when storing HTML for the reader. Be careful not to accidentally double-strip or double-add BOM handling.
 - Reader mode vs full-site mode is controlled by `useWebPageStore().fullSite`.
+- Reader loading is a pipeline, not just a fetch spinner. Treat the loading UI as covering:
+  - downloading
+  - cleanup / HV conversion
+  - WebView rendering / injected-script readiness
+- Prefer stage-based loading state for reader transitions instead of a single boolean when the UI needs to explain progress.
+- When starting a new page transition, clear stale `htmlOrig` / `htmlHV` before pairing the next URL with freshly loaded HTML. This avoids showing the previous page under a new URL while loading.
 - `app/index.tsx` injects bridge code for:
   - link interception
   - page press dismissal
   - scroll position reporting/restoration
 - Changes to injected JS can easily break navigation or reader restoration. Re-test on device/simulator when touching it.
+- For reader loading UX changes, do not mark loading complete until the `WebView` load-complete path has run.
 
 ### Navigation / History
 
@@ -110,6 +117,11 @@
   - [`app/_layout.tsx`](/Users/saigon/dev/hvbrowser/app/_layout.tsx)
   - [`app/index.tsx`](/Users/saigon/dev/hvbrowser/app/index.tsx)
   - the relevant store/hook/db file for the feature you are changing
+- Fast path for reader loading / WebView / page transition issues:
+  - [`hooks/usePageLoader.ts`](/Users/saigon/dev/hvbrowser/hooks/usePageLoader.ts)
+  - [`app/index.tsx`](/Users/saigon/dev/hvbrowser/app/index.tsx)
+  - [`stores/useAppStore.ts`](/Users/saigon/dev/hvbrowser/stores/useAppStore.ts)
+- If a state value spans async work plus render completion, prefer a descriptive stage enum over introducing additional loosely-coupled booleans.
 - Prefer extending existing hooks/store actions over adding duplicate fetch/state logic in components.
 - Keep UI state in `useWebPageStore` and durable/business state in `useAppStore`.
 - Preserve the existing theme/token approach in [`theme.ts`](/Users/saigon/dev/hvbrowser/theme.ts) instead of hardcoding ad hoc colors.
@@ -123,6 +135,7 @@
 - When changing page rendering, inspect both:
   - [`hooks/usePageLoader.ts`](/Users/saigon/dev/hvbrowser/hooks/usePageLoader.ts)
   - [`app/index.tsx`](/Users/saigon/dev/hvbrowser/app/index.tsx)
+- If the task is specifically about reader-pipeline behavior, use the repo-local skill at [`.agents/skills/reader-pipeline/SKILL.md`](.agents/skills/reader-pipeline/SKILL.md).
 
 ## Repo Commands
 

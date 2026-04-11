@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { WebView, WebViewMessageEvent, WebViewNavigation } from 'react-native-webview';
 
 import { usePageLoader } from '../hooks/usePageLoader';
@@ -86,6 +86,7 @@ export default function IndexScreen() {
   const styles = createStyles(theme);
 
   const loading = useAppStore((s) => s.loading);
+  const loadingStage = useAppStore((s) => s.loadingStage);
   const htmlOrig = useAppStore((s) => s.htmlOrig);
   const htmlHV = useAppStore((s) => s.htmlHV);
   const currentUrl = useAppStore((s) => s.currentUrl);
@@ -93,6 +94,8 @@ export default function IndexScreen() {
   const getOfflineChapterByUrlFromState = useAppStore((s) => s.getOfflineChapterByUrlFromState);
   const dictionary = useAppStore((s) => s.dictionary);
   const pinyinDictionary = useAppStore((s) => s.pinyinDictionary);
+  const setLoading = useAppStore((s) => s.setLoading);
+  const setLoadingStage = useAppStore((s) => s.setLoadingStage);
 
   const isHV = useWebPageStore((s) => s.isHV);
   const fullSite = useWebPageStore((s) => s.fullSite);
@@ -277,6 +280,7 @@ export default function IndexScreen() {
   );
 
   const activeHtml = isHV ? htmlHV : htmlOrig;
+  const hasHtml = !!activeHtml;
   const htmlSource = fullSite
     ? activeHtml
     : isHV
@@ -326,16 +330,29 @@ export default function IndexScreen() {
     webViewRef.current.injectJavaScript(restoreScript);
   }, [currentUrl, fullSite]);
 
+  const loadingLabel =
+    loadingStage === 'downloading'
+      ? 'Downloading page'
+      : loadingStage === 'converting'
+        ? 'Converting to Han-Viet'
+        : 'Preparing page';
+
+  const handleLoadStart = useCallback(() => {
+    if (!loading) {
+      return;
+    }
+
+    setLoadingStage('rendering');
+  }, [loading, setLoadingStage]);
+
+  const handleLoadEnd = useCallback(() => {
+    restoreReaderScrollPosition();
+    setLoading(false);
+  }, [restoreReaderScrollPosition, setLoading]);
+
   return (
     <View style={styles.screen}>
-      {loading && (
-        <View style={styles.loadingOverlay}>
-          <View style={styles.loadingCard}>
-            <ActivityIndicator animating={loading} color={theme.colors.accent} size="small" />
-          </View>
-        </View>
-      )}
-      {!loading && (
+      {hasHtml && (
         <WebView
           key={`${currentContentSource}:${currentUrl}:${fullSite ? 'full' : 'reader'}:${isHV ? 'hv' : 'orig'}`}
           ref={webViewRef}
@@ -346,10 +363,22 @@ export default function IndexScreen() {
           style={styles.webView}
           mixedContentMode="compatibility"
           injectedJavaScript={initialScript}
+          onLoadStart={handleLoadStart}
+          onLoadEnd={handleLoadEnd}
           onMessage={handleMessage}
-          onLoadEnd={restoreReaderScrollPosition}
           onNavigationStateChange={handleNavigationStateChange}
         />
+      )}
+      {loading && (
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingCard}>
+            <ActivityIndicator animating={loading} color={theme.colors.accent} size="small" />
+            <Text style={styles.loadingTitle}>{loadingLabel}</Text>
+            <Text style={styles.loadingSubtitle}>
+              Please wait while the reader finishes loading.
+            </Text>
+          </View>
+        </View>
       )}
     </View>
   );
@@ -377,6 +406,20 @@ const createStyles = (theme: Theme) =>
       backgroundColor: theme.colors.surface,
       borderWidth: 1,
       borderColor: theme.colors.borderMuted,
+      minWidth: 220,
+      gap: theme.spacing.xs,
+      ...theme.shadows.md,
+    },
+    loadingTitle: {
+      ...theme.typography.bodyStrong,
+      color: theme.colors.text,
+      textAlign: 'center',
+      marginTop: theme.spacing.xs,
+    },
+    loadingSubtitle: {
+      ...theme.typography.caption,
+      color: theme.colors.textMuted,
+      textAlign: 'center',
     },
     webView: {
       flex: 1,

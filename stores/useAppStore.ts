@@ -64,9 +64,11 @@ export interface PendingBookmarkDraft {
 }
 
 type ReaderContentSource = 'remote' | 'offline';
+export type ReaderLoadingStage = 'downloading' | 'converting' | 'rendering';
 
 interface AppState {
   loading: boolean;
+  loadingStage: ReaderLoadingStage | null;
   error: boolean;
   htmlOrig: string;
   htmlHV: string;
@@ -102,6 +104,7 @@ interface AppState {
   getOfflineChapterByUrlFromState: (url: string) => OfflineChapterRecord | null;
 
   setLoading: (loading: boolean) => void;
+  setLoadingStage: (stage: ReaderLoadingStage | null) => void;
   setError: (error: boolean) => void;
   setHtmlContent: (orig: string, hv: string) => void;
   setCurrentUrl: (url: string) => void;
@@ -192,6 +195,7 @@ export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
       loading: false,
+      loadingStage: null,
       error: false,
       htmlOrig: '',
       htmlHV: '',
@@ -245,7 +249,8 @@ export const useAppStore = create<AppState>()(
         return chapters.find((chapter) => chapter.chapterUrl === url) ?? null;
       },
 
-      setLoading: (loading) => set({ loading }),
+      setLoading: (loading) => set({ loading, loadingStage: loading ? get().loadingStage : null }),
+      setLoadingStage: (loadingStage) => set({ loadingStage }),
       setError: (error) => set({ error }),
       setHtmlContent: (htmlOrig, htmlHV) => set({ htmlOrig, htmlHV }),
       setCurrentUrl: (currentUrl) => set({ currentUrl }),
