@@ -14,6 +14,7 @@ import {
 export default function IndexScreen() {
   const webViewRef = useRef<WebView>(null);
   const readerScrollPositionsRef = useRef<Record<string, number>>({});
+  const pendingReaderRestoreUrlRef = useRef<string | null>(null);
   const { loadPage, loadOfflineChapter } = usePageLoader();
   const theme = useTheme();
   const styles = createStyles(theme);
@@ -31,6 +32,17 @@ export default function IndexScreen() {
   const fullSite = useWebPageStore((s) => s.fullSite);
   const fontSize = useWebPageStore((s) => s.fontSize);
   const setMoreMenu = useWebPageStore((s) => s.setMoreMenu);
+
+  useEffect(() => {
+    if (fullSite || !currentUrl) {
+      pendingReaderRestoreUrlRef.current = null;
+      return;
+    }
+
+    const scrollRatio = readerScrollPositionsRef.current[currentUrl];
+    pendingReaderRestoreUrlRef.current =
+      scrollRatio != null && Number.isFinite(scrollRatio) ? currentUrl : null;
+  }, [currentUrl, currentContentSource, fontSize, fullSite, isHV, theme.mode]);
 
   useEffect(() => {
     if (webViewRef.current && fullSite) {
@@ -108,7 +120,17 @@ export default function IndexScreen() {
 
         if (payload.type === 'scroll-position') {
           if (!fullSite && currentUrl && typeof payload.ratio === 'number' && Number.isFinite(payload.ratio)) {
+            if (pendingReaderRestoreUrlRef.current === currentUrl) {
+              return;
+            }
             readerScrollPositionsRef.current[currentUrl] = Math.max(0, Math.min(1, payload.ratio));
+          }
+          return;
+        }
+
+        if (payload.type === 'restore-complete') {
+          if (currentUrl && pendingReaderRestoreUrlRef.current === currentUrl) {
+            pendingReaderRestoreUrlRef.current = null;
           }
           return;
         }
@@ -184,6 +206,11 @@ export default function IndexScreen() {
           (document.body ? document.body.scrollHeight : 0) - window.innerHeight
         );
         window.scrollTo(0, Math.max(0, maxScroll * ratio));
+        window.setTimeout(function() {
+          if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'restore-complete' }));
+          }
+        }, 80);
         return true;
       })();
     `;
