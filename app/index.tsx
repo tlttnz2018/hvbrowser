@@ -29,6 +29,7 @@ export default function IndexScreen() {
   const isHV = useWebPageStore((s) => s.isHV);
   const fullSite = useWebPageStore((s) => s.fullSite);
   const fontSize = useWebPageStore((s) => s.fontSize);
+  const setMoreMenu = useWebPageStore((s) => s.setMoreMenu);
 
   useEffect(() => {
     if (webViewRef.current && fullSite) {
@@ -42,6 +43,11 @@ export default function IndexScreen() {
       document.body.style.fontSize = "${fontSize}em";
       if (window.__HVBROWSER_LINK_BRIDGE__) { return true; }
       window.__HVBROWSER_LINK_BRIDGE__ = true;
+      document.addEventListener('click', function() {
+        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'page-press' }));
+        }
+      }, true);
       document.addEventListener('click', function(event) {
         var target = event.target;
         var link = target && target.closest ? target.closest('a[href]') : null;
@@ -61,6 +67,11 @@ export default function IndexScreen() {
     (event: WebViewMessageEvent) => {
       try {
         const payload = JSON.parse(event.nativeEvent.data) as { type?: string; url?: string };
+        if (payload.type === 'page-press') {
+          setMoreMenu(false);
+          return;
+        }
+
         if (payload.type !== 'link-press' || !payload.url || payload.url === currentUrl) {
           return;
         }
@@ -76,7 +87,7 @@ export default function IndexScreen() {
         // Ignore non-JSON messages from the page.
       }
     },
-    [currentContentSource, currentUrl, getOfflineChapterByUrlFromState, loadOfflineChapter, loadPage]
+    [currentContentSource, currentUrl, getOfflineChapterByUrlFromState, loadOfflineChapter, loadPage, setMoreMenu]
   );
 
   const handleNavigationStateChange = useCallback(

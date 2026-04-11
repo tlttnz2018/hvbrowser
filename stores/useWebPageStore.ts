@@ -13,6 +13,7 @@ interface WebPageState {
 
   // actions
   setUrlInputFocus: (focus: boolean) => void;
+  setMoreMenu: (open: boolean) => void;
   toggleMoreMenu: () => void;
   toggleCss: () => void;
   increaseFont: () => void;
@@ -33,6 +34,8 @@ export const useWebPageStore = create<WebPageState>()((set, get) => ({
   themeMode: 'system',
 
   setUrlInputFocus: (urlInputFocus) => set({ urlInputFocus }),
+
+  setMoreMenu: (moreMenu) => set({ moreMenu }),
 
   toggleMoreMenu: () => set((state) => ({ moreMenu: !state.moreMenu })),
 
