@@ -1,10 +1,10 @@
 import type * as KyselyModule from 'kysely';
 
-const kysely = require('kysely/dist/cjs/index.js') as typeof KyselyModule;
+const { Kysely } = require('kysely/dist/cjs/kysely.js') as Pick<typeof KyselyModule, 'Kysely'>;
+const { Migrator } = require('kysely/dist/cjs/migration/migrator.js') as Pick<typeof KyselyModule, 'Migrator'>;
+const { sql } = require('kysely/dist/cjs/raw-builder/sql.js') as Pick<typeof KyselyModule, 'sql'>;
 
-export const Kysely = kysely.Kysely;
-export const Migrator = kysely.Migrator;
-export const sql = kysely.sql;
+export { Kysely, Migrator, sql };
 
 export type {
   Generated,
