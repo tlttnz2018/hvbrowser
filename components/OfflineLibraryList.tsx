@@ -434,7 +434,10 @@ export default function OfflineLibraryList({
         <TouchableOpacity
           activeOpacity={canOpen ? 0.75 : 1}
           disabled={!canOpen}
-          onPress={() => onOpenChapter(chapter.id)}
+          onPress={() => {
+            closeStoryBrowser();
+            onOpenChapter(chapter.id);
+          }}
           style={[styles.chapterRow, !canOpen && styles.chapterRowDisabled]}
         >
           <View style={styles.chapterText}>
