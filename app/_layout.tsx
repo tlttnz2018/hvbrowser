@@ -122,6 +122,7 @@ export default function RootLayout() {
           <SearchInput
             placeholder="Input chinese website url"
             url={safeCurrentUrl}
+            urlInputFocus={urlInputFocus}
             onSubmit={loadPage}
             onFocus={(isFocus) => {
               setUrlInputFocus(isFocus);

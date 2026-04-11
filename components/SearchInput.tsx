@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Keyboard, StyleSheet, TextInput, Text, View, TouchableOpacity } from 'react-native';
+import { Keyboard, Pressable, StyleSheet, TextInput, Text, View, TouchableOpacity } from 'react-native';
 import { Theme, useTheme } from '../theme';
 
 interface SearchInputProps {
   placeholder?: string;
   url: string;
+  urlInputFocus: boolean;
   onSubmit: (text: string) => void;
   onFocus: (isFocus: boolean) => void;
   backButtonEnabled: boolean;
@@ -16,6 +17,7 @@ interface SearchInputProps {
 export default function SearchInput({
   placeholder,
   url,
+  urlInputFocus,
   onSubmit,
   onFocus,
   backButtonEnabled,
@@ -40,8 +42,24 @@ export default function SearchInput({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
 
+  useEffect(() => {
+    if (!urlInputFocus) {
+      requestAnimationFrame(() => {
+        Keyboard.dismiss();
+        inputRef.current?.blur();
+      });
+    } else {
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+      });
+    }
+  }, [urlInputFocus]);
+
   const handleSubmitEditing = () => {
     if (!text) return;
+    onFocus(false);
+    Keyboard.dismiss();
+    inputRef.current?.blur();
     onSubmit(text);
   };
 
@@ -68,10 +86,17 @@ export default function SearchInput({
       <TextInput
         ref={inputRef}
         autoCorrect={false}
+        autoFocus={false}
+        blurOnSubmit
+        caretHidden={!urlInputFocus}
+        contextMenuHidden={!urlInputFocus}
+        editable={urlInputFocus}
+        focusable={urlInputFocus}
         value={text}
         placeholder={placeholder}
         placeholderTextColor={theme.colors.inputPlaceholder}
         underlineColorAndroid="transparent"
+        showSoftInputOnFocus={urlInputFocus}
         style={[styles.textInput, !backButtonEnabled && styles.textInputCompact]}
         clearButtonMode="always"
         onChangeText={setText}
@@ -79,10 +104,23 @@ export default function SearchInput({
         onFocus={handleFocus}
         onBlur={handleBlur}
       />
+      {!urlInputFocus && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Edit URL"
+          onPress={() => onFocus(true)}
+          style={[styles.editOverlay, !backButtonEnabled && styles.editOverlayCompact]}
+        />
+      )}
       <TouchableOpacity
         accessibilityRole="button"
         accessibilityLabel={fullSite ? 'Switch to reader mode' : 'Switch to full site mode'}
-        onPress={onToggleReaderMode}
+        onPress={() => {
+          onFocus(false);
+          Keyboard.dismiss();
+          inputRef.current?.blur();
+          onToggleReaderMode();
+        }}
         style={[styles.readerButton, !backButtonEnabled && styles.readerButtonCompact]}
       >
         <Text style={styles.readerLabel}>{fullSite ? '☷' : '◫'}</Text>
@@ -114,6 +152,17 @@ const createStyles = (theme: Theme) =>
     },
     textInputCompact: {
       marginLeft: 0,
+    },
+    editOverlay: {
+      position: 'absolute',
+      left: 48,
+      right: 0,
+      top: 0,
+      bottom: 0,
+      borderRadius: theme.radius.md,
+    },
+    editOverlayCompact: {
+      left: 0,
     },
     navButton: {
       width: 40,

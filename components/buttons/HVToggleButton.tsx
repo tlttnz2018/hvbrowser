@@ -5,6 +5,7 @@ import { useWebPageStore } from '../../stores/useWebPageStore';
 export default function HVToggleButton() {
   const isHV = useWebPageStore((s) => s.isHV);
   const urlInputFocus = useWebPageStore((s) => s.urlInputFocus);
+  const setUrlInputFocus = useWebPageStore((s) => s.setUrlInputFocus);
   const toggleHV = useWebPageStore((s) => s.toggleHV);
   const viewWebPage = !urlInputFocus;
 
@@ -15,6 +16,7 @@ export default function HVToggleButton() {
       accessibilityLabel="Choose reading language mode"
       compact
       onChange={(key) => {
+        setUrlInputFocus(false);
         if ((key === 'hv') !== isHV) toggleHV();
       }}
       options={[
