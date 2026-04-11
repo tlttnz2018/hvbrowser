@@ -51,12 +51,6 @@ bun format:check
 bun typecheck
 ```
 
-Notes:
-
-- `bun run lint` is working and currently reports warnings from existing code style debt.
-- `bun run format:check` may fail until the repository is fully reformatted with Prettier.
-- `bun typecheck` is still the main type-safety check for repo-wide changes.
-
 For feature work, manual testing is still important, especially for:
 
 - remote page loading

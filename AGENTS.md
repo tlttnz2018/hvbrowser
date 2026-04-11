@@ -14,12 +14,6 @@
 - `react-native-webview` for rendering source pages and transformed reader HTML
 - TypeScript in `strict` mode
 
-## Reality Check
-
-- `README.md` is stale in a few places. The app uses Zustand, not MobX.
-- There are no committed lint or test scripts in `package.json` right now.
-- A practical validation step that works in this repo is `npx tsc --noEmit`.
-
 ## High-Level Architecture
 
 ### App Shell
@@ -130,7 +124,9 @@
 
 ## Validation Checklist
 
-- Run `bunx tsc --noEmit`.
+- Run `bun lint`.
+- Run `bun format:check`.
+- Run `bun typecheck`.
 - If you touched the WebView or reader transformation path, manually sanity-check:
   - remote page load
   - HV toggle
@@ -172,7 +168,6 @@
 ## Known Gaps
 
 - No repo-level automated tests are currently set up.
-- No lint script is currently wired in `package.json`.
 - Some markdown notes in the repo root appear to be planning docs rather than guaranteed-current implementation docs.
 
 ## Safe Assumptions
