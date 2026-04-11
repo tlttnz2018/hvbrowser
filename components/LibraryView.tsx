@@ -1,6 +1,8 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { FontAwesome6 } from '@expo/vector-icons';
+import { Directory, File } from 'expo-file-system';
 import {
+  Alert,
   findNodeHandle,
   Modal,
   Pressable,
@@ -155,6 +157,8 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
   const lastViewUrl = useAppStore((s) => s.lastViewUrl);
   const removeBookmark = useAppStore((s) => s.removeBookmark);
   const openBookmarkEditorForBookmark = useAppStore((s) => s.openBookmarkEditorForBookmark);
+  const importBookmarksBackup = useAppStore((s) => s.importBookmarksBackup);
+  const exportBookmarksBackup = useAppStore((s) => s.exportBookmarksBackup);
   const refreshOfflineLibrary = useAppStore((s) => s.refreshOfflineLibrary);
   const offlineStories = useAppStore((s) => s.offlineStories);
   const offlineChaptersByStory = useAppStore((s) => s.offlineChaptersByStory);
@@ -167,6 +171,7 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [libraryTab, setLibraryTab] = useState<LibraryTabKey>('library');
   const [openMenu, setOpenMenu] = useState<'filter' | 'sort' | null>(null);
+  const [bookmarkTransferBusy, setBookmarkTransferBusy] = useState<'import' | 'export' | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number; width: number; height: number } | null>(
     null
   );
@@ -247,6 +252,60 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
       setMenuAnchor({ x, y, width, height });
       setOpenMenu(menu);
     });
+  };
+
+  const handleImportBookmarks = async () => {
+    if (bookmarkTransferBusy) return;
+
+    try {
+      setBookmarkTransferBusy('import');
+      const pickedFile = await File.pickFileAsync(undefined, 'application/json');
+      const file = Array.isArray(pickedFile) ? pickedFile[0] : pickedFile;
+
+      if (!file) {
+        return;
+      }
+
+      const importedCount = await importBookmarksBackup(await file.text());
+      Alert.alert(
+        importedCount > 0 ? 'Bookmarks imported' : 'No bookmarks imported',
+        importedCount > 0
+          ? `${importedCount} saved bookmark${importedCount === 1 ? '' : 's'} added or updated from the JSON file.`
+          : 'The selected file did not contain any valid bookmarks to import.'
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to import bookmarks from that file.';
+      if (!/cancel/i.test(message)) {
+        Alert.alert('Import failed', message);
+      }
+    } finally {
+      setBookmarkTransferBusy(null);
+    }
+  };
+
+  const handleExportBookmarks = async () => {
+    if (bookmarkTransferBusy) return;
+
+    try {
+      setBookmarkTransferBusy('export');
+      const destinationDirectory = await Directory.pickDirectoryAsync();
+      const exportFile = new File(
+        destinationDirectory.uri,
+        `hvbrowser-bookmarks-${new Date().toISOString().slice(0, 10)}.json`
+      );
+
+      exportFile.create({ overwrite: true, intermediates: true });
+      exportFile.write(await exportBookmarksBackup());
+
+      Alert.alert('Bookmarks exported', 'Saved a JSON backup into the folder you selected on this device.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to export bookmarks to device storage.';
+      if (!/cancel/i.test(message)) {
+        Alert.alert('Export failed', message);
+      }
+    } finally {
+      setBookmarkTransferBusy(null);
+    }
   };
 
   const header = (
@@ -383,9 +442,35 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
       </View>
 
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Sources</Text>
+        <View style={styles.sectionHeaderTopRow}>
+          <Text style={styles.sectionTitle}>Sources</Text>
+          <View style={styles.transferActions}>
+            <Pressable
+              accessibilityLabel="Import bookmarks from JSON"
+              disabled={bookmarkTransferBusy !== null}
+              onPress={handleImportBookmarks}
+              style={[styles.transferButton, bookmarkTransferBusy !== null && styles.transferButtonDisabled]}
+            >
+              <FontAwesome6 name="file-import" size={12} color={theme.colors.textAccent} />
+              <Text style={styles.transferButtonText}>
+                {bookmarkTransferBusy === 'import' ? 'Importing' : 'Import'}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel="Export bookmarks to JSON"
+              disabled={bookmarkTransferBusy !== null}
+              onPress={handleExportBookmarks}
+              style={[styles.transferButton, bookmarkTransferBusy !== null && styles.transferButtonDisabled]}
+            >
+              <FontAwesome6 name="file-export" size={12} color={theme.colors.textAccent} />
+              <Text style={styles.transferButtonText}>
+                {bookmarkTransferBusy === 'export' ? 'Exporting' : 'Export'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
         <Text style={styles.sectionCaption}>
-          Tap to open. Long-press a bookmark to edit it, or swipe left to remove it.
+          Tap to open. Long-press a bookmark to edit it, swipe left to remove it, or move saved bookmarks in and out as JSON.
         </Text>
       </View>
         </>
@@ -620,6 +705,13 @@ const createStyles = (theme: Theme) =>
     marginBottom: 10,
     paddingHorizontal: 2,
   },
+  sectionHeaderTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: theme.spacing.sm,
+  },
   sectionTitle: {
     ...theme.typography.title,
     color: theme.colors.text,
@@ -629,5 +721,28 @@ const createStyles = (theme: Theme) =>
     fontSize: 13,
     lineHeight: 18,
     color: theme.colors.textSubtle,
+  },
+  transferActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.xs,
+  },
+  transferButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    borderRadius: theme.radius.full,
+    backgroundColor: theme.colors.accentSoft,
+    borderWidth: 1,
+    borderColor: theme.colors.borderMuted,
+  },
+  transferButtonDisabled: {
+    opacity: 0.55,
+  },
+  transferButtonText: {
+    ...theme.typography.caption,
+    color: theme.colors.textAccent,
   },
 });

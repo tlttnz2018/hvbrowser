@@ -5,6 +5,7 @@ import {
   getBookmarkFavicon,
   getBookmarkImage,
   sanitizeBookmarkUrl,
+  truncateBookmarkDescription,
   truncateBookmarkTitle,
 } from '../utils/bookmarks';
 
@@ -52,6 +53,23 @@ export interface BookmarkRecord {
   favicon: string | null;
   createdAt: string;
   lastAccessedAt: string;
+}
+
+export interface BookmarkTransferRecord {
+  title?: string;
+  description?: string;
+  desc?: string;
+  url?: string;
+  image?: string | null;
+  favicon?: string | null;
+  createdAt?: string;
+  lastAccessedAt?: string;
+}
+
+export interface BookmarkTransferPayload {
+  version: 1;
+  exportedAt: string;
+  bookmarks: BookmarkTransferRecord[];
 }
 
 const migrations: Record<string, Migration> = {
@@ -114,15 +132,33 @@ function normalizeLegacyBookmarks(input: LegacyBookmark[] | undefined): LegacyBo
 function getBookmarkPayload(url: string, rawTitle: string, rawDescription?: string | null) {
   const normalizedUrl = sanitizeBookmarkUrl(url) || url.trim();
   const title = truncateBookmarkTitle(rawTitle) || normalizedUrl;
+  const description = truncateBookmarkDescription(rawDescription ?? '');
   const image = getBookmarkImage(normalizedUrl);
 
   return {
     title,
-    description: rawDescription ?? '',
+    description,
     url: normalizedUrl,
     image,
     favicon: image ? null : getBookmarkFavicon(normalizedUrl),
   };
+}
+
+function getValidDateString(input: string | undefined, fallback: string): string {
+  if (!input) return fallback;
+  return Number.isNaN(Date.parse(input)) ? fallback : input;
+}
+
+function getTransferBookmarks(input: unknown): BookmarkTransferRecord[] {
+  if (Array.isArray(input)) {
+    return input;
+  }
+
+  if (input && typeof input === 'object' && Array.isArray((input as BookmarkTransferPayload).bookmarks)) {
+    return (input as BookmarkTransferPayload).bookmarks;
+  }
+
+  return [];
 }
 
 async function migrateLegacyBookmarksFromAsyncStorage() {
@@ -237,6 +273,84 @@ export async function listBookmarks(): Promise<BookmarkRecord[]> {
     .execute();
 
   return rows.map(mapBookmarkRow);
+}
+
+export async function exportBookmarksPayload(): Promise<BookmarkTransferPayload> {
+  const bookmarks = await listBookmarks();
+
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    bookmarks: bookmarks.map((bookmark) => ({
+      title: bookmark.title,
+      description: bookmark.description,
+      url: bookmark.url,
+      image: bookmark.image,
+      favicon: bookmark.favicon,
+      createdAt: bookmark.createdAt,
+      lastAccessedAt: bookmark.lastAccessedAt,
+    })),
+  };
+}
+
+export async function importBookmarksFromJson(raw: string): Promise<number> {
+  await ensureBookmarkDbReady();
+
+  const parsed = JSON.parse(raw) as unknown;
+  const now = new Date().toISOString();
+  const dedupedBookmarks = new Map<
+    string,
+    {
+      title: string;
+      description: string;
+      url: string;
+      image: string | null;
+      favicon: string | null;
+      created_at: string;
+      last_accessed_at: string;
+    }
+  >();
+
+  for (const bookmark of getTransferBookmarks(parsed)) {
+    const normalizedUrl = sanitizeBookmarkUrl(bookmark.url ?? '');
+    if (!normalizedUrl) continue;
+
+    const payload = getBookmarkPayload(
+      normalizedUrl,
+      bookmark.title || bookmark.desc || normalizedUrl,
+      bookmark.description || bookmark.desc || ''
+    );
+
+    dedupedBookmarks.set(normalizedUrl, {
+      ...payload,
+      image: typeof bookmark.image === 'string' ? bookmark.image : payload.image,
+      favicon: typeof bookmark.favicon === 'string' ? bookmark.favicon : payload.favicon,
+      created_at: getValidDateString(bookmark.createdAt, now),
+      last_accessed_at: getValidDateString(bookmark.lastAccessedAt, now),
+    });
+  }
+
+  const values = [...dedupedBookmarks.values()];
+  if (values.length === 0) {
+    return 0;
+  }
+
+  await bookmarkDb
+    .insertInto('bookmarks')
+    .values(values)
+    .onConflict((oc) =>
+      oc.column('url').doUpdateSet((eb) => ({
+        title: eb.ref('excluded.title'),
+        description: eb.ref('excluded.description'),
+        image: eb.ref('excluded.image'),
+        favicon: eb.ref('excluded.favicon'),
+        created_at: eb.ref('excluded.created_at'),
+        last_accessed_at: eb.ref('excluded.last_accessed_at'),
+      }))
+    )
+    .execute();
+
+  return values.length;
 }
 
 export async function saveBookmark(input: { title: string; url: string; description?: string | null }): Promise<void> {

@@ -3,6 +3,8 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import {
   BookmarkRecord,
+  exportBookmarksPayload,
+  importBookmarksFromJson,
   listBookmarks,
   removeBookmarkByUrl,
   saveBookmark,
@@ -103,6 +105,8 @@ interface AppState {
   toggleBookmark: () => Promise<void>;
   removeBookmark: (url: string) => Promise<void>;
   markBookmarkVisited: (url: string) => Promise<void>;
+  importBookmarksBackup: (raw: string) => Promise<number>;
+  exportBookmarksBackup: () => Promise<string>;
   setDictionary: (dict: Record<string, string>) => void;
   setPinyinDictionary: (dict: Record<string, string>) => void;
   enqueueOfflineChapter: (input: {
@@ -369,6 +373,18 @@ export const useAppStore = create<AppState>()(
 
         const nextBookmarks = await listBookmarks();
         set({ bookmarks: nextBookmarks.map(toStoreBookmark) });
+      },
+
+      importBookmarksBackup: async (raw) => {
+        const importedCount = await importBookmarksFromJson(raw);
+        const nextBookmarks = await listBookmarks();
+        set({ bookmarks: nextBookmarks.map(toStoreBookmark) });
+        return importedCount;
+      },
+
+      exportBookmarksBackup: async () => {
+        const payload = await exportBookmarksPayload();
+        return JSON.stringify(payload, null, 2);
       },
 
       setDictionary: (dictionary) => set({ dictionary }),
