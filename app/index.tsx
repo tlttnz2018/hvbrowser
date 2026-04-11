@@ -160,8 +160,23 @@ export default function IndexScreen() {
         var target = event.target;
         var link = target && target.closest ? target.closest('a[href]') : null;
         if (!link) { return; }
-        var href = link.href || link.getAttribute('href');
+        var rawHref = link.getAttribute('href') || '';
+        if (rawHref.charAt(0) === '#') { return; }
+        var href = link.href || rawHref;
         if (!href || href.indexOf('javascript:') === 0) { return; }
+        try {
+          var nextUrl = new URL(href, window.location.href);
+          var currentUrl = new URL(window.location.href);
+          if (
+            nextUrl.origin === currentUrl.origin &&
+            nextUrl.pathname === currentUrl.pathname &&
+            nextUrl.search === currentUrl.search &&
+            nextUrl.hash &&
+            nextUrl.hash !== currentUrl.hash
+          ) {
+            return;
+          }
+        } catch (error) {}
         if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'link-press', url: href }));
           event.preventDefault();
@@ -237,6 +252,13 @@ export default function IndexScreen() {
 
       if (!url || url === currentUrl || !title) return;
       if (currentContentSource === 'offline') return;
+      if (
+        currentUrl &&
+        url.replace(/#.*$/, '') === currentUrl.replace(/#.*$/, '') &&
+        /#/.test(url)
+      ) {
+        return;
+      }
       if (url.indexOf('about') !== -1 || url.match(/data:/) || url.indexOf('postMessage') !== -1) {
         return;
       }
