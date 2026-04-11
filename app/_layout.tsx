@@ -19,6 +19,7 @@ import LibraryView from '../components/LibraryView';
 import BookmarkEditorModal from '../components/BookmarkEditorModal';
 import OfflineChapterPicker from '../components/OfflineChapterPicker';
 import OfflinePageRolePicker from '../components/OfflinePageRolePicker';
+import OfflineStoryPicker from '../components/OfflineStoryPicker';
 import WebTextToolbar from '../components/toolbars/WebTextToolbar';
 
 import { useAppStore } from '../stores/useAppStore';
@@ -32,7 +33,14 @@ import { Theme, absoluteFill, useTheme } from '../theme';
 export default function RootLayout() {
   const { loadPage, loadOfflineChapter } = usePageLoader();
   const { goBack } = useHistory();
-  const { confirmPageRoles, dismissPageRolePicker, dismissChapterPicker, enqueueSelectedChapters } =
+  const {
+    confirmPageRoles,
+    confirmStoryResolution,
+    dismissPageRolePicker,
+    dismissChapterPicker,
+    dismissStoryPicker,
+    enqueueSelectedChapters,
+  } =
     useOfflineDownloads();
   const theme = useTheme();
   const styles = createStyles(theme);
@@ -54,6 +62,9 @@ export default function RootLayout() {
   const pageRolePickerVisible = useAppStore((s) => s.pageRolePickerVisible);
   const chapterPickerVisible = useAppStore((s) => s.chapterPickerVisible);
   const pendingOfflineAction = useAppStore((s) => s.pendingOfflineAction);
+  const storyPickerVisible = useAppStore((s) => s.storyPickerVisible);
+  const pendingStoryResolution = useAppStore((s) => s.pendingStoryResolution);
+  const offlineStories = useAppStore((s) => s.offlineStories);
   const downloadQueue = useAppStore((s) => s.downloadQueue);
   const {
     fullSite,
@@ -197,6 +208,15 @@ export default function RootLayout() {
           candidates={pendingOfflineAction?.chapterCandidates ?? []}
           onClose={dismissChapterPicker}
           onSubmit={enqueueSelectedChapters}
+        />
+        <OfflineStoryPicker
+          visible={storyPickerVisible}
+          pageTitle={pendingStoryResolution?.action.pageTitle ?? 'Current page'}
+          stories={offlineStories}
+          suggestedStoryId={pendingStoryResolution?.suggestedStoryId ?? null}
+          defaultStoryName={pendingStoryResolution?.defaultStoryName ?? 'Untitled story'}
+          onClose={dismissStoryPicker}
+          onSubmit={confirmStoryResolution}
         />
       </View>
     </SafeAreaView>

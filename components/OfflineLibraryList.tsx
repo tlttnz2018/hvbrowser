@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { OfflineChapterRecord, OfflineStoryRecord } from '../db/offline';
 import { Theme, absoluteFill, useTheme } from '../theme';
 
@@ -207,6 +208,7 @@ export default function OfflineLibraryList({
   onRemoveStory,
 }: OfflineLibraryListProps) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
   const styles = createStyles(theme);
   const listRef = useRef<FlatList<ChapterRow>>(null);
   const storyListRef = useRef<FlatList<StoryRow>>(null);
@@ -633,7 +635,10 @@ export default function OfflineLibraryList({
       </CompactSheet>
 
       <Modal animationType="slide" visible={!!activeStory} onRequestClose={closeStoryBrowser}>
-        <View style={styles.storyBrowserScreen}>
+        <SafeAreaView
+          style={[styles.storyBrowserScreen, { paddingTop: insets.top + theme.spacing.lg }]}
+          edges={['left', 'right', 'bottom']}
+        >
           <View style={styles.storyBrowserTopBar}>
             <Pressable onPress={closeStoryBrowser} style={styles.storyBrowserBack}>
               <Text style={styles.storyBrowserBackLabel}>Back</Text>
@@ -728,7 +733,7 @@ export default function OfflineLibraryList({
               />
             ))}
           </CompactSheet>
-        </View>
+        </SafeAreaView>
       </Modal>
     </View>
   );

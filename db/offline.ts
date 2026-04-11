@@ -324,6 +324,13 @@ export async function saveOfflineChapter(input: SaveOfflineChapterInput): Promis
   await ensureOfflineDbReady();
 
   const now = new Date().toISOString();
+  const existing = await getOfflineChapterByUrl(input.chapterUrl);
+  const originalHtml = input.originalHtml ?? existing?.originalHtml ?? '';
+  const convertedHvHtml = input.convertedHvHtml ?? existing?.convertedHvHtml ?? '';
+  const downloadStatus = input.downloadStatus ?? existing?.downloadStatus ?? 'queued';
+  const downloadError = input.downloadError ?? existing?.downloadError ?? null;
+  const downloadedAt =
+    input.downloadedAt !== undefined ? input.downloadedAt : existing?.downloadedAt ?? null;
 
   await offlineDb
     .insertInto('offline_chapters')
@@ -332,11 +339,11 @@ export async function saveOfflineChapter(input: SaveOfflineChapterInput): Promis
       chapter_name: input.chapterName,
       chapter_url: input.chapterUrl,
       chapter_order: input.chapterOrder ?? null,
-      original_html: input.originalHtml ?? '',
-      converted_hv_html: input.convertedHvHtml ?? '',
-      download_status: input.downloadStatus ?? 'queued',
-      download_error: input.downloadError ?? null,
-      downloaded_at: input.downloadedAt ?? null,
+      original_html: originalHtml,
+      converted_hv_html: convertedHvHtml,
+      download_status: downloadStatus,
+      download_error: downloadError,
+      downloaded_at: downloadedAt,
       created_at: now,
       updated_at: now,
     })
@@ -345,11 +352,11 @@ export async function saveOfflineChapter(input: SaveOfflineChapterInput): Promis
         story_id: input.storyId,
         chapter_name: input.chapterName,
         chapter_order: input.chapterOrder ?? null,
-        original_html: input.originalHtml ?? '',
-        converted_hv_html: input.convertedHvHtml ?? '',
-        download_status: input.downloadStatus ?? 'queued',
-        download_error: input.downloadError ?? null,
-        downloaded_at: input.downloadedAt ?? null,
+        original_html: originalHtml,
+        converted_hv_html: convertedHvHtml,
+        download_status: downloadStatus,
+        download_error: downloadError,
+        downloaded_at: downloadedAt,
         updated_at: now,
       })
     )

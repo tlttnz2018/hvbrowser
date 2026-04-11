@@ -22,6 +22,54 @@ function cleanLabel(value: string, fallback: string) {
   return trimmed || fallback;
 }
 
+function extractStoryNameGuess(pageTitle: string, fallback: string) {
+  const title = cleanLabel(pageTitle, fallback);
+  const segments = title
+    .split(/\s+[|:\-–—]\s+|[|:\-–—]/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  const nonChapterSegments = segments.filter(
+    (segment) => !/(chapter|chap\b|chuong|chương|hoi\b|hồi|phan\b|phần|tap\b|tập|episode|ep\b)/i.test(segment)
+  );
+
+  const preferred = (nonChapterSegments.length > 0 ? nonChapterSegments : segments).sort(
+    (left, right) => right.length - left.length
+  )[0];
+
+  return preferred || title;
+}
+
+function tokenizeTitle(value: string) {
+  return cleanLabel(value, '')
+    .toLowerCase()
+    .split(/[^a-z0-9\u00c0-\u024f\u1e00-\u1eff]+/i)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3)
+    .filter((token) => !/^(chapter|chap|chuong|chương|hoi|hồi|phan|phần|tap|tập|episode)$/.test(token));
+}
+
+function findBestStoryTitleMatch(stories: OfflineStoryRecord[], storyNameGuess: string) {
+  const guessTokens = new Set(tokenizeTitle(storyNameGuess));
+  if (guessTokens.size === 0) {
+    return null;
+  }
+
+  let bestStory: OfflineStoryRecord | null = null;
+  let bestScore = 0;
+
+  for (const story of stories) {
+    const storyTokens = tokenizeTitle(story.name);
+    const score = storyTokens.reduce((total, token) => total + (guessTokens.has(token) ? 1 : 0), 0);
+    if (score > bestScore) {
+      bestScore = score;
+      bestStory = story;
+    }
+  }
+
+  return bestScore > 0 ? bestStory : null;
+}
+
 function flattenChapterCandidates(action: PendingOfflineAction, selectedUrls: string[]) {
   return action.chapterCandidates.filter((candidate) => selectedUrls.includes(candidate.url));
 }
@@ -77,43 +125,19 @@ function extractChapterCandidates(
 export function useOfflineDownloads() {
   const openPageRolePicker = useAppStore((state) => state.openPageRolePicker);
   const openChapterPicker = useAppStore((state) => state.openChapterPicker);
+  const openStoryPicker = useAppStore((state) => state.openStoryPicker);
   const closePageRolePicker = useAppStore((state) => state.closePageRolePicker);
   const closeChapterPicker = useAppStore((state) => state.closeChapterPicker);
+  const closeStoryPicker = useAppStore((state) => state.closeStoryPicker);
   const enqueueOfflineChapter = useAppStore((state) => state.enqueueOfflineChapter);
   const refreshOfflineLibrary = useAppStore((state) => state.refreshOfflineLibrary);
 
-  async function ensureStory(
-    action: PendingOfflineAction,
-    selectedRoles: Array<'home page' | 'index page' | 'chapter page'>
-  ) {
-    const state = useAppStore.getState();
-    const existingStory =
-      state.offlineStories.find((story) => story.id === action.storyId) ||
-      (await getOfflineStoryByHomePageUrl(action.currentUrl)) ||
-      (await getOfflineStoryByIndexPageUrl(action.currentUrl)) ||
-      (await getOfflineStoryByChapterUrl(action.currentUrl));
-
-    const fallbackName = cleanLabel(action.pageTitle, 'Untitled story');
-
-    if (!existingStory) {
-      return upsertOfflineStory({
-        name: fallbackName,
-        homePageUrl: selectedRoles.includes('home page') ? action.currentUrl : null,
-        indexPageUrl: selectedRoles.includes('index page') ? action.currentUrl : null,
-      });
-    }
-
-    let nextStory = existingStory;
-
-    if (selectedRoles.includes('home page') && nextStory.homePageUrl !== action.currentUrl) {
-      nextStory = (await attachHomePageToStory(existingStory.id, action.currentUrl)) ?? nextStory;
-    }
-
-    if (selectedRoles.includes('index page') && nextStory.indexPageUrl !== action.currentUrl) {
-      nextStory = (await attachIndexPageToStory(existingStory.id, action.currentUrl)) ?? nextStory;
-    }
-
-    return nextStory;
+  async function resolveExactStoryForUrl(currentUrl: string) {
+    return (
+      (await getOfflineStoryByChapterUrl(currentUrl)) ||
+      (await getOfflineStoryByIndexPageUrl(currentUrl)) ||
+      (await getOfflineStoryByHomePageUrl(currentUrl))
+    );
   }
 
   async function queueCurrentChapter(
@@ -187,31 +211,38 @@ export function useOfflineDownloads() {
     });
   }
 
-  async function applyPageRoles(
+  async function continueWithStory(
+    story: OfflineStoryRecord,
     action: PendingOfflineAction,
     selectedRoles: Array<'home page' | 'index page' | 'chapter page'>
   ) {
-    if (selectedRoles.length === 0) {
-      return;
-    }
-
-    const story = await ensureStory(action, selectedRoles);
-    await refreshOfflineLibrary();
-
     const includesIndex = selectedRoles.includes('index page');
     const includesChapter = selectedRoles.includes('chapter page');
     const includesHome = selectedRoles.includes('home page');
+    let nextStory = story;
+
+    if (includesHome && nextStory.homePageUrl !== action.currentUrl) {
+      nextStory = (await attachHomePageToStory(nextStory.id, action.currentUrl)) ?? nextStory;
+    }
+
+    if (includesIndex && nextStory.indexPageUrl !== action.currentUrl) {
+      nextStory = (await attachIndexPageToStory(nextStory.id, action.currentUrl)) ?? nextStory;
+    }
+
+    await refreshOfflineLibrary();
 
     if (includesChapter) {
-      await queueCurrentChapter(story, action, { silent: includesIndex || includesHome });
+      await queueCurrentChapter(nextStory, action, { silent: includesIndex || includesHome });
     }
 
     if (includesIndex) {
-      await beginIndexFlow(action, story);
+      closeStoryPicker();
+      await beginIndexFlow(action, nextStory);
       return;
     }
 
     closePageRolePicker();
+    closeStoryPicker();
 
     if (includesChapter) {
       if (includesHome) {
@@ -223,6 +254,43 @@ export function useOfflineDownloads() {
     if (includesHome) {
       Alert.alert('Page roles saved', 'This URL is now remembered as a home page for the story.');
     }
+  }
+
+  function promptForStoryResolution(
+    action: PendingOfflineAction,
+    selectedRoles: Array<'home page' | 'index page' | 'chapter page'>
+  ) {
+    const state = useAppStore.getState();
+    const defaultStoryName = extractStoryNameGuess(action.pageTitle, 'Untitled story');
+    const suggestedStory =
+      (state.offlineStories.some((story) => story.id === action.storyId)
+        ? state.offlineStories.find((story) => story.id === action.storyId) ?? null
+        : null) || findBestStoryTitleMatch(state.offlineStories, defaultStoryName);
+    const suggestedStoryId = suggestedStory?.id ?? null;
+
+    openStoryPicker({
+      action,
+      selectedRoles,
+      suggestedStoryId,
+      defaultStoryName,
+    });
+  }
+
+  async function applyPageRoles(
+    action: PendingOfflineAction,
+    selectedRoles: Array<'home page' | 'index page' | 'chapter page'>
+  ) {
+    if (selectedRoles.length === 0) {
+      return;
+    }
+
+    const exactStory = await resolveExactStoryForUrl(action.currentUrl);
+    if (exactStory) {
+      await continueWithStory(exactStory, action, selectedRoles);
+      return;
+    }
+
+    promptForStoryResolution(action, selectedRoles);
   }
 
   async function startDownloadFromCurrentPage(forceRolePicker = false) {
@@ -289,6 +357,27 @@ export function useOfflineDownloads() {
     await applyPageRoles(action, selectedRoles);
   }
 
+  async function confirmStoryResolution(selection: { storyId?: number | null; name?: string }) {
+    const pending = useAppStore.getState().pendingStoryResolution;
+    if (!pending) {
+      return;
+    }
+
+    let story: OfflineStoryRecord | null = null;
+    if (selection.storyId) {
+      story = useAppStore.getState().offlineStories.find((item) => item.id === selection.storyId) ?? null;
+    } else {
+      const trimmedName = cleanLabel(selection.name ?? '', pending.defaultStoryName);
+      story = await upsertOfflineStory({ name: trimmedName });
+    }
+
+    if (!story) {
+      return;
+    }
+
+    await continueWithStory(story, pending.action, pending.selectedRoles);
+  }
+
   async function enqueueSelectedChapters(selectedUrls: string[]) {
     const action = useAppStore.getState().pendingOfflineAction;
     if (!action?.storyId) {
@@ -332,11 +421,17 @@ export function useOfflineDownloads() {
     closeChapterPicker();
   }
 
+  function dismissStoryPicker() {
+    closeStoryPicker();
+  }
+
   return {
     startDownloadFromCurrentPage,
     confirmPageRoles,
+    confirmStoryResolution,
     enqueueSelectedChapters,
     dismissPageRolePicker,
     dismissChapterPicker,
+    dismissStoryPicker,
   };
 }

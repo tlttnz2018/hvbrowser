@@ -45,6 +45,13 @@ export interface PendingOfflineAction {
   chapterCandidates: OfflineChapterCandidate[];
 }
 
+export interface PendingStoryResolution {
+  action: PendingOfflineAction;
+  selectedRoles: Array<'home page' | 'index page' | 'chapter page'>;
+  suggestedStoryId: number | null;
+  defaultStoryName: string;
+}
+
 export interface PendingBookmarkDraft {
   originalUrl?: string;
   title: string;
@@ -78,6 +85,8 @@ interface AppState {
   pageRolePickerVisible: boolean;
   chapterPickerVisible: boolean;
   pendingOfflineAction: PendingOfflineAction | null;
+  storyPickerVisible: boolean;
+  pendingStoryResolution: PendingStoryResolution | null;
   currentContentSource: ReaderContentSource;
   currentOfflineChapterId: number | null;
 
@@ -126,6 +135,8 @@ interface AppState {
   closePageRolePicker: () => void;
   openChapterPicker: (action: PendingOfflineAction) => void;
   closeChapterPicker: () => void;
+  openStoryPicker: (resolution: PendingStoryResolution) => void;
+  closeStoryPicker: () => void;
 }
 
 function toStoreBookmark(bookmark: BookmarkRecord): Bookmark {
@@ -194,6 +205,8 @@ export const useAppStore = create<AppState>()(
       pageRolePickerVisible: false,
       chapterPickerVisible: false,
       pendingOfflineAction: null,
+      storyPickerVisible: false,
+      pendingStoryResolution: null,
       currentContentSource: 'remote',
       currentOfflineChapterId: null,
 
@@ -488,6 +501,8 @@ export const useAppStore = create<AppState>()(
           pendingOfflineAction,
           pageRolePickerVisible: true,
           chapterPickerVisible: false,
+          storyPickerVisible: false,
+          pendingStoryResolution: null,
         }),
 
       closePageRolePicker: () =>
@@ -500,11 +515,27 @@ export const useAppStore = create<AppState>()(
           pendingOfflineAction,
           chapterPickerVisible: true,
           pageRolePickerVisible: false,
+          storyPickerVisible: false,
+          pendingStoryResolution: null,
         }),
 
       closeChapterPicker: () =>
         set({
           chapterPickerVisible: false,
+        }),
+
+      openStoryPicker: (pendingStoryResolution) =>
+        set({
+          pendingStoryResolution,
+          storyPickerVisible: true,
+          pageRolePickerVisible: false,
+          chapterPickerVisible: false,
+        }),
+
+      closeStoryPicker: () =>
+        set({
+          storyPickerVisible: false,
+          pendingStoryResolution: null,
         }),
     }),
     {
