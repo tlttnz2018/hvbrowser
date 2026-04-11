@@ -87,7 +87,9 @@
 - Offline records live in the same SQLite DB file as bookmarks, but in separate Kysely schemas/modules.
 - Chapter URLs are unique in `offline_chapters`. Re-queue logic depends on that uniqueness.
 - Queue processing is intentionally serialized via `queueLoopPromise` in [`utils/offline-download-queue.ts`](/Users/saigon/dev/hvbrowser/utils/offline-download-queue.ts).
+- Hydrating the offline library also rebuilds the in-memory download queue from queued chapter rows; [`app/_layout.tsx`](/Users/saigon/dev/hvbrowser/app/_layout.tsx) restarts the queue loop when queued items are present.
 - Existing downloaded HTML should be reused when possible instead of redownloading.
+- Saving the chapter currently open in the reader can persist the already-loaded `htmlOrig` / `htmlHV` pair directly, without waiting for the queue downloader.
 
 ### Bookmark Persistence
 
@@ -121,6 +123,14 @@
 - When changing page rendering, inspect both:
   - [`hooks/usePageLoader.ts`](/Users/saigon/dev/hvbrowser/hooks/usePageLoader.ts)
   - [`app/index.tsx`](/Users/saigon/dev/hvbrowser/app/index.tsx)
+
+## Repo Commands
+
+- Install dependencies with `bun install`.
+- Start the Expo app with `bun start`.
+- Launch a target directly with `bun android`, `bun ios`, or `bun web`.
+- Run validation with `bun lint`, `bun format:check`, and `bun typecheck`.
+- Apply local autofixes with `bun lint:fix` and `bun format`.
 
 ## Validation Checklist
 
