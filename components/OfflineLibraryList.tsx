@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
+import { FontAwesome6 } from '@expo/vector-icons';
 import {
   Alert,
   Animated,
@@ -469,13 +470,20 @@ export default function OfflineLibraryList({
   return (
     <View style={styles.container}>
       <View style={styles.topBar}>
-        <TextInput
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholder={viewMode === 'grouped' ? 'Search stories or chapters' : 'Search all chapters'}
-          placeholderTextColor={theme.colors.inputPlaceholder}
-          style={styles.searchInput}
-        />
+        <View style={styles.searchWrap}>
+          <TextInput
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder={viewMode === 'grouped' ? 'Search stories or chapters' : 'Search all chapters'}
+            placeholderTextColor={theme.colors.inputPlaceholder}
+            style={styles.searchInput}
+          />
+          {!!searchQuery && (
+            <Pressable accessibilityLabel="Clear search" onPress={() => setSearchQuery('')} style={styles.clearButton}>
+              <FontAwesome6 name="xmark" size={12} color={theme.colors.textAccent} />
+            </Pressable>
+          )}
+        </View>
         <View style={styles.toolbarButtonRow}>
           <Pressable onPress={() => setOverlayKind('mode')} style={styles.toolbarButton}>
             <Text style={styles.toolbarButtonLabel}>{viewMode === 'grouped' ? 'Stories' : 'All'}</Text>
@@ -640,13 +648,24 @@ export default function OfflineLibraryList({
             </Pressable>
           </View>
 
-          <TextInput
-            value={storySearchQuery}
-            onChangeText={setStorySearchQuery}
-            placeholder="Search this story's chapters"
-            placeholderTextColor={theme.colors.inputPlaceholder}
-            style={styles.storySearchInput}
-          />
+          <View style={styles.searchWrap}>
+            <TextInput
+              value={storySearchQuery}
+              onChangeText={setStorySearchQuery}
+              placeholder="Search this story's chapters"
+              placeholderTextColor={theme.colors.inputPlaceholder}
+              style={styles.storySearchInput}
+            />
+            {!!storySearchQuery && (
+              <Pressable
+                accessibilityLabel="Clear search"
+                onPress={() => setStorySearchQuery('')}
+                style={styles.clearButton}
+              >
+                <FontAwesome6 name="xmark" size={12} color={theme.colors.textAccent} />
+              </Pressable>
+            )}
+          </View>
 
           <View style={styles.storyBrowserActions}>
             <Pressable onPress={() => scrollToActiveStoryIndex(0)} style={styles.storyBrowserAction}>
@@ -723,6 +742,9 @@ const createStyles = (theme: Theme) =>
     topBar: {
       paddingBottom: theme.spacing.sm,
     },
+    searchWrap: {
+      position: 'relative',
+    },
     searchInput: {
       height: 44,
       borderRadius: theme.radius.lg,
@@ -730,8 +752,20 @@ const createStyles = (theme: Theme) =>
       borderColor: theme.colors.inputBorder,
       backgroundColor: theme.colors.inputBackground,
       paddingHorizontal: 14,
+      paddingRight: 42,
       fontSize: 15,
       color: theme.colors.text,
+    },
+    clearButton: {
+      position: 'absolute',
+      top: 7,
+      right: 8,
+      width: 30,
+      height: 30,
+      borderRadius: theme.radius.sm,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.colors.surfaceMuted,
     },
     toolbarButtonRow: {
       flexDirection: 'row',
@@ -1003,6 +1037,7 @@ const createStyles = (theme: Theme) =>
       borderColor: theme.colors.inputBorder,
       backgroundColor: theme.colors.inputBackground,
       paddingHorizontal: 14,
+      paddingRight: 42,
       fontSize: 15,
       color: theme.colors.text,
     },
