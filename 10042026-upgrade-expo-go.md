@@ -15,19 +15,19 @@ Expo SDK 35 is no longer supported by Expo Go or EAS. This migration creates a m
 
 ## Decisions
 
-| Area | Current | Target |
-|------|---------|--------|
-| Expo SDK | 35 | 55 |
-| React | 16.8.3 | 18.x |
-| Package manager | npm/yarn (lock files deleted) | **bun** |
-| State management | MobX 5 (legacy decorators) | **Zustand** |
-| Styling | styled-components 4.2.0 | **NativeWind v4** (Tailwind CSS) |
-| Components | Class components | **Functional + hooks** |
-| Navigation | Custom MobX-based toggle | **Expo Router** (file-based) |
-| HTML parsing | react-native-cheerio (RC, unmaintained) | **htmlparser2 + domutils** |
-| Platforms | iOS only | **iOS + Android** |
-| App identity | com.troioi.hvbrowser2 | Same (keep bundle ID + EAS project) |
-| Directory strategy | Same repo | **New branch (`expo55-migration`), same dir** |
+| Area               | Current                                 | Target                                        |
+| ------------------ | --------------------------------------- | --------------------------------------------- |
+| Expo SDK           | 35                                      | 55                                            |
+| React              | 16.8.3                                  | 18.x                                          |
+| Package manager    | npm/yarn (lock files deleted)           | **bun**                                       |
+| State management   | MobX 5 (legacy decorators)              | **Zustand**                                   |
+| Styling            | styled-components 4.2.0                 | **NativeWind v4** (Tailwind CSS)              |
+| Components         | Class components                        | **Functional + hooks**                        |
+| Navigation         | Custom MobX-based toggle                | **Expo Router** (file-based)                  |
+| HTML parsing       | react-native-cheerio (RC, unmaintained) | **htmlparser2 + domutils**                    |
+| Platforms          | iOS only                                | **iOS + Android**                             |
+| App identity       | com.troioi.hvbrowser2                   | Same (keep bundle ID + EAS project)           |
+| Directory strategy | Same repo                               | **New branch (`expo55-migration`), same dir** |
 
 **Dropped dependencies:** react-native-messages (unused), lodash (replace with native), prop-types (TypeScript), uuid/react-native-uuid (use stable keys), stream polyfill, vietphraser.js (dead code), newChinesePhienAm.json (unused).
 
@@ -167,33 +167,40 @@ Create `app/_layout.tsx`, `app/index.tsx`, `app/web.tsx` with minimal placeholde
 ### Phase 5: Port Utilities (HIGHEST RISK)
 
 #### 5.1: `utils/normalize-url.ts`
+
 Pure string manipulation, no deps. Port as-is with TypeScript types. Keep the custom implementation — native `URL` API won't handle the CJK-site-specific edge cases (`www./m./sj./wap.` prefixes, `.aspx/.php` detection).
 
 #### 5.2: `utils/cleanup.ts` (639 lines — critical)
+
 - Replace lodash with native: `_.isRegExp` → `instanceof RegExp`, `_.each` → `Object.entries().forEach()`, `_.extend` → `Object.assign()`, etc.
 - Replace cheerio (`updateRelativeUrl`):
+
   ```ts
   import { parseDocument } from 'htmlparser2';
   import { findAll, getAttributeValue } from 'domutils';
   import render from 'dom-serializer';
   ```
+
   - `cheerio.load(text)` → `parseDocument(text)`
   - `$('a')` → `findAll(elem => elem.name === 'a', doc.children)`
   - `$(el).attr('href')` → `getAttributeValue(elem, 'href')`
   - `$(el).attr('href', val)` → `elem.attribs.href = val`
   - `$.html()` → `render(doc)`
+
 - **Preserve ALL regex rules character-for-character**: `replaceAll` (135 patterns), `replace` (~100 entries), `oneWordReplace` (~100 entries), `replaceFix` (~15 entries)
 - Preserve the `CHAR_ALIAS` mechanism and `toRE()` function exactly
 
 #### 5.3: `utils/downloader.ts` (encoding — critical)
 
 **Buffer polyfill** — In `app/_layout.tsx` or a `polyfills.ts` loaded first:
+
 ```ts
 import { Buffer } from 'buffer';
 global.Buffer = global.Buffer || Buffer;
 ```
 
 **Replace XMLHttpRequest with fetch:**
+
 ```ts
 const response = await fetch(url);
 const arrayBuffer = await response.arrayBuffer();
@@ -213,6 +220,7 @@ const detected = encoding.detect(byteArray);
 **`convertHtmlPageToHV`** — Character-by-character dictionary lookup. Pure string logic, ports directly.
 
 #### 5.4: Drop `utils/vietphraser.js`
+
 Dead code — never imported anywhere. The actual conversion uses `convertHtmlPageToHV` in downloader.js.
 
 **Verify Phase 5:** Feed known HTML pages through old and new pipelines, diff outputs. This is the single most important verification step.
@@ -221,27 +229,26 @@ Dead code — never imported anywhere. The actual conversion uses `convertHtmlPa
 
 All components convert from class/MobX to functional/Zustand/NativeWind:
 
-| Component | Key Changes |
-|-----------|-------------|
-| `SearchInput` | `componentWillReceiveProps` → `useEffect([url])`, class → functional |
-| `Grid` | `PureComponent` → `React.memo`, propTypes → TypeScript interface |
-| `ImageGrid` | `uuid.v4()` keys → stable URL-based keys, remove styled-components |
-| 5 toolbar buttons | Remove `inject()`/`observer()` HOCs → `useAppStore()`/`useWebPageStore()` hooks |
-| `WebTextToolbar` | Remove MobX injection, use Zustand hooks |
-| `HomeToggleButton` | `appStore.toggleHome()` → `router.push('/')` / `router.push('/web')` |
+| Component          | Key Changes                                                                     |
+| ------------------ | ------------------------------------------------------------------------------- |
+| `SearchInput`      | `componentWillReceiveProps` → `useEffect([url])`, class → functional            |
+| `Grid`             | `PureComponent` → `React.memo`, propTypes → TypeScript interface                |
+| `ImageGrid`        | `uuid.v4()` keys → stable URL-based keys, remove styled-components              |
+| 5 toolbar buttons  | Remove `inject()`/`observer()` HOCs → `useAppStore()`/`useWebPageStore()` hooks |
+| `WebTextToolbar`   | Remove MobX injection, use Zustand hooks                                        |
+| `HomeToggleButton` | `appStore.toggleHome()` → `router.push('/')` / `router.push('/web')`            |
 
 ### Phase 7: Port Screens
 
 **`app/index.tsx` (Home):** ImageGrid with site shortcuts, bookmarks from store, last-viewed URL. NativeWind classes.
 
 **`app/web.tsx` (Web):** WebView from `react-native-webview`. Font injection via `useEffect` on `fontSize`:
+
 ```ts
 const webViewRef = useRef<WebView>(null);
-const fontSize = useWebPageStore(s => s.fontSize);
+const fontSize = useWebPageStore((s) => s.fontSize);
 useEffect(() => {
-  webViewRef.current?.injectJavaScript(
-    `document.body.style.fontSize = "${fontSize}em"; true;`
-  );
+  webViewRef.current?.injectJavaScript(`document.body.style.fontSize = "${fontSize}em"; true;`);
 }, [fontSize]);
 ```
 
@@ -250,12 +257,14 @@ Link interception via `onNavigationStateChange` — filter out `about:`, `data:`
 ### Phase 8: Orchestration Hooks
 
 **`hooks/usePageLoader.ts`** — Encapsulates `MainApp.handleUpdateUrl`:
+
 ```
 loadPage(url) → fixUrl → downloadHtmlPage → handleContentText →
   updateRelativeUrl → convertHtmlPageToHV → store results → router.push('/web')
 ```
 
 **`hooks/useHistory.ts`** — Encapsulates `MainApp.goBack`:
+
 ```
 goBack() → popHistory → skip if same as current → loadPage(previousUrl)
 ```
@@ -263,6 +272,7 @@ goBack() → popHistory → skip if same as current → loadPage(previousUrl)
 ### Phase 9: Root Layout (`app/_layout.tsx`)
 
 Wires everything together:
+
 - `SafeAreaView` wrapper (replaces hardcoded `top: 30`)
 - Load dictionary on mount via `useEffect`
 - Render SearchInput + toolbar buttons
@@ -272,6 +282,7 @@ Wires everything together:
 ### Phase 10: AsyncStorage Migration
 
 One-time migration in Zustand persist `onRehydrateStorage`:
+
 - Read old keys → write into new store → delete old keys
 - Old: `HV_BROWSER_BOOKMARK_STORAGE_KEY` (JSON array), `HV_BROWSER_LASTVIEW_STORAGE_KEY` (string)
 - New: single `hv-browser-storage` key via Zustand persist
@@ -286,13 +297,13 @@ One-time migration in Zustand persist `onRehydrateStorage`:
 
 ## Risk Register
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| `iconv-lite` fails on Hermes with Buffer polyfill | **High** | Test GBK decoding early in Phase 5.3. Fallback: use `encoding-japanese.convert()` to go from GBK→Unicode directly (it supports this). |
-| Regex cleanup rules produce different output | **High** | Create test fixtures: save HTML input/output pairs from old app, diff against new pipeline. |
-| `htmlparser2` serializes HTML differently than cheerio | **Medium** | Only `updateRelativeUrl` uses DOM parsing (rewrites `<a>` hrefs). Verify with link-heavy pages. |
-| `react-native-webview` event shape differs from old built-in WebView | **Medium** | `navigationType` may be absent on Android. Test link interception on both platforms. |
-| NativeWind className not applying on some RN components | **Low** | Some components need explicit `styled()` wrapper from NativeWind. Check docs for compatibility. |
+| Risk                                                                 | Severity   | Mitigation                                                                                                                            |
+| -------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `iconv-lite` fails on Hermes with Buffer polyfill                    | **High**   | Test GBK decoding early in Phase 5.3. Fallback: use `encoding-japanese.convert()` to go from GBK→Unicode directly (it supports this). |
+| Regex cleanup rules produce different output                         | **High**   | Create test fixtures: save HTML input/output pairs from old app, diff against new pipeline.                                           |
+| `htmlparser2` serializes HTML differently than cheerio               | **Medium** | Only `updateRelativeUrl` uses DOM parsing (rewrites `<a>` hrefs). Verify with link-heavy pages.                                       |
+| `react-native-webview` event shape differs from old built-in WebView | **Medium** | `navigationType` may be absent on Android. Test link interception on both platforms.                                                  |
+| NativeWind className not applying on some RN components              | **Low**    | Some components need explicit `styled()` wrapper from NativeWind. Check docs for compatibility.                                       |
 
 ---
 

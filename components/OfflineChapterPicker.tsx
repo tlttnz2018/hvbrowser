@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FontAwesome6 } from '@expo/vector-icons';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import SegmentedControl from './buttons/SegmentedControl';
+
 import type { OfflineChapterCandidate } from '../stores/useAppStore';
-import { Theme, absoluteFill, useTheme } from '../theme';
+import { absoluteFill, Theme, useTheme } from '../theme';
+import SegmentedControl from './buttons/SegmentedControl';
 
 interface OfflineChapterPickerProps {
   visible: boolean;
@@ -32,7 +33,7 @@ function isSelectable(status: OfflineChapterCandidate['existingStatus']) {
 function matchesFilter(
   candidate: OfflineChapterCandidate,
   filterKey: PickerFilterKey,
-  selectedUrls: Set<string>
+  selectedUrls: Set<string>,
 ) {
   if (filterKey === 'all') return true;
   if (filterKey === 'selected') return selectedUrls.has(candidate.url);
@@ -79,8 +80,11 @@ export default function OfflineChapterPicker({
   }, [candidates, filterKey, searchQuery, selectedUrls]);
 
   const visibleSelectableUrls = useMemo(
-    () => filteredCandidates.filter((candidate) => isSelectable(candidate.existingStatus)).map((candidate) => candidate.url),
-    [filteredCandidates]
+    () =>
+      filteredCandidates
+        .filter((candidate) => isSelectable(candidate.existingStatus))
+        .map((candidate) => candidate.url),
+    [filteredCandidates],
   );
 
   const selectedCount = selectedUrls.size;
@@ -88,7 +92,9 @@ export default function OfflineChapterPicker({
 
   const jumpTargets = useMemo(() => {
     const firstNewIndex = filteredCandidates.findIndex((candidate) => !candidate.existingStatus);
-    const firstSelectedIndex = filteredCandidates.findIndex((candidate) => selectedUrls.has(candidate.url));
+    const firstSelectedIndex = filteredCandidates.findIndex((candidate) =>
+      selectedUrls.has(candidate.url),
+    );
 
     return {
       firstNewIndex,
@@ -175,7 +181,11 @@ export default function OfflineChapterPicker({
                 style={styles.searchInput}
               />
               {!!searchQuery && (
-                <Pressable accessibilityLabel="Clear search" onPress={() => setSearchQuery('')} style={styles.clearButton}>
+                <Pressable
+                  accessibilityLabel="Clear search"
+                  onPress={() => setSearchQuery('')}
+                  style={styles.clearButton}
+                >
                   <FontAwesome6 name="xmark" size={12} color={theme.colors.textAccent} />
                 </Pressable>
               )}
@@ -211,7 +221,10 @@ export default function OfflineChapterPicker({
               <Pressable
                 disabled={jumpTargets.firstSelectedIndex < 0}
                 onPress={() => scrollToIndex(jumpTargets.firstSelectedIndex)}
-                style={[styles.jumpPill, jumpTargets.firstSelectedIndex < 0 && styles.jumpPillDisabled]}
+                style={[
+                  styles.jumpPill,
+                  jumpTargets.firstSelectedIndex < 0 && styles.jumpPillDisabled,
+                ]}
               >
                 <Text style={styles.jumpLabel}>Selection</Text>
               </Pressable>
@@ -219,7 +232,11 @@ export default function OfflineChapterPicker({
             {!!bucketActions.length && (
               <View style={styles.bucketRow}>
                 {bucketActions.map((bucket) => (
-                  <Pressable key={bucket.label} onPress={() => scrollToIndex(bucket.index)} style={styles.bucketPill}>
+                  <Pressable
+                    key={bucket.label}
+                    onPress={() => scrollToIndex(bucket.index)}
+                    style={styles.bucketPill}
+                  >
                     <Text style={styles.bucketLabel}>{bucket.label}</Text>
                   </Pressable>
                 ))}
@@ -243,7 +260,10 @@ export default function OfflineChapterPicker({
             windowSize={12}
             onScrollToIndexFailed={({ index, averageItemLength }) => {
               requestAnimationFrame(() =>
-                scrollToIndex(Math.min(index, filteredCandidates.length - 1), averageItemLength || ESTIMATED_ROW_HEIGHT)
+                scrollToIndex(
+                  Math.min(index, filteredCandidates.length - 1),
+                  averageItemLength || ESTIMATED_ROW_HEIGHT,
+                ),
               );
             }}
             renderItem={({ item }) => {
@@ -257,8 +277,16 @@ export default function OfflineChapterPicker({
                   onPress={() => toggleSelectedUrl(item.url)}
                   style={[styles.row, disabled && styles.rowDisabled]}
                 >
-                  <View style={[styles.checkbox, selected && styles.checkboxSelected, disabled && styles.checkboxDisabled]}>
-                    <Text style={[styles.checkboxLabel, selected && styles.checkboxLabelSelected]}>{selected ? '✓' : ''}</Text>
+                  <View
+                    style={[
+                      styles.checkbox,
+                      selected && styles.checkboxSelected,
+                      disabled && styles.checkboxDisabled,
+                    ]}
+                  >
+                    <Text style={[styles.checkboxLabel, selected && styles.checkboxLabelSelected]}>
+                      {selected ? '✓' : ''}
+                    </Text>
                   </View>
                   <View style={styles.rowContent}>
                     <Text numberOfLines={1} style={styles.rowTitle}>
@@ -277,7 +305,9 @@ export default function OfflineChapterPicker({
             ListEmptyComponent={
               <View style={styles.emptyState}>
                 <Text style={styles.emptyTitle}>No chapters match this view</Text>
-                <Text style={styles.emptyText}>Try a different filter, clear the search, or switch back to All.</Text>
+                <Text style={styles.emptyText}>
+                  Try a different filter, clear the search, or switch back to All.
+                </Text>
               </View>
             }
           />

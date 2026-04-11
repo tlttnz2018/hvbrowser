@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Theme, absoluteFill, useTheme } from '../theme';
+
+import { absoluteFill, Theme, useTheme } from '../theme';
 
 interface OfflinePageRolePickerProps {
   visible: boolean;
@@ -10,7 +11,11 @@ interface OfflinePageRolePickerProps {
   onSubmit: (roles: Array<'home page' | 'index page' | 'chapter page'>) => void;
 }
 
-const OPTIONS: Array<{ role: 'home page' | 'index page' | 'chapter page'; label: string; description: string }> = [
+const OPTIONS: Array<{
+  role: 'home page' | 'index page' | 'chapter page';
+  label: string;
+  description: string;
+}> = [
   {
     role: 'home page',
     label: 'Home page',
@@ -37,7 +42,9 @@ export default function OfflinePageRolePicker({
 }: OfflinePageRolePickerProps) {
   const theme = useTheme();
   const styles = createStyles(theme);
-  const [selectedRoles, setSelectedRoles] = useState<Array<'home page' | 'index page' | 'chapter page'>>([]);
+  const [selectedRoles, setSelectedRoles] = useState<
+    Array<'home page' | 'index page' | 'chapter page'>
+  >([]);
 
   useEffect(() => {
     if (visible) {
@@ -52,47 +59,55 @@ export default function OfflinePageRolePicker({
         <View style={styles.card}>
           <Text style={styles.eyebrow}>Offline download</Text>
           <Text style={styles.title}>What kind of page is this?</Text>
-        <Text numberOfLines={2} style={styles.subtitle}>
-          {pageTitle}
-        </Text>
-        <Text style={styles.helperText}>
-          Home page and index page can both be checked for the same URL. Long-pressing `DL` opens this editor anytime.
-        </Text>
-        {OPTIONS.map((option) => (
-          <Pressable
-            key={option.role}
-            onPress={() =>
-              setSelectedRoles((current) =>
-                current.includes(option.role)
-                  ? current.filter((role) => role !== option.role)
-                  : [...current, option.role]
-              )
-            }
-            style={styles.option}
-          >
-            <View style={styles.optionRow}>
-              <View style={[styles.checkbox, selectedRoles.includes(option.role) && styles.checkboxSelected]}>
-                <Text style={styles.checkboxLabel}>{selectedRoles.includes(option.role) ? '✓' : ''}</Text>
+          <Text numberOfLines={2} style={styles.subtitle}>
+            {pageTitle}
+          </Text>
+          <Text style={styles.helperText}>
+            Home page and index page can both be checked for the same URL. Long-pressing `DL` opens
+            this editor anytime.
+          </Text>
+          {OPTIONS.map((option) => (
+            <Pressable
+              key={option.role}
+              onPress={() =>
+                setSelectedRoles((current) =>
+                  current.includes(option.role)
+                    ? current.filter((role) => role !== option.role)
+                    : [...current, option.role],
+                )
+              }
+              style={styles.option}
+            >
+              <View style={styles.optionRow}>
+                <View
+                  style={[
+                    styles.checkbox,
+                    selectedRoles.includes(option.role) && styles.checkboxSelected,
+                  ]}
+                >
+                  <Text style={styles.checkboxLabel}>
+                    {selectedRoles.includes(option.role) ? '✓' : ''}
+                  </Text>
+                </View>
+                <View style={styles.optionText}>
+                  <Text style={styles.optionLabel}>{option.label}</Text>
+                  <Text style={styles.optionDescription}>{option.description}</Text>
+                </View>
               </View>
-              <View style={styles.optionText}>
-                <Text style={styles.optionLabel}>{option.label}</Text>
-                <Text style={styles.optionDescription}>{option.description}</Text>
-              </View>
-            </View>
-          </Pressable>
-        ))}
-        <View style={styles.footer}>
-          <Pressable onPress={onClose} style={styles.cancelButton}>
-            <Text style={styles.cancelLabel}>Cancel</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => onSubmit(selectedRoles)}
-            disabled={selectedRoles.length === 0}
-            style={[styles.applyButton, selectedRoles.length === 0 && styles.applyButtonDisabled]}
-          >
-            <Text style={styles.applyLabel}>Apply</Text>
-          </Pressable>
-        </View>
+            </Pressable>
+          ))}
+          <View style={styles.footer}>
+            <Pressable onPress={onClose} style={styles.cancelButton}>
+              <Text style={styles.cancelLabel}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => onSubmit(selectedRoles)}
+              disabled={selectedRoles.length === 0}
+              style={[styles.applyButton, selectedRoles.length === 0 && styles.applyButtonDisabled]}
+            >
+              <Text style={styles.applyLabel}>Apply</Text>
+            </Pressable>
+          </View>
         </View>
       </View>
     </Modal>

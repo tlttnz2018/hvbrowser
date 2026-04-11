@@ -1,11 +1,12 @@
-import React, { useRef, useEffect, useCallback } from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import React, { useCallback, useEffect, useRef } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { WebView, WebViewMessageEvent, WebViewNavigation } from 'react-native-webview';
+
+import { usePageLoader } from '../hooks/usePageLoader';
 import { useAppStore } from '../stores/useAppStore';
 import { useWebPageStore } from '../stores/useWebPageStore';
-import { usePageLoader } from '../hooks/usePageLoader';
+import { absoluteFill, Theme, useTheme } from '../theme';
 import { extractBaseUrl } from '../utils/normalize-url';
-import { Theme, absoluteFill, useTheme } from '../theme';
 import {
   stripPresentationHtmlWithChineseTooltips,
   stripPresentationHtmlWithHvTooltips,
@@ -184,7 +185,12 @@ export default function IndexScreen() {
         }
 
         if (payload.type === 'scroll-position') {
-          if (!fullSite && currentUrl && typeof payload.ratio === 'number' && Number.isFinite(payload.ratio)) {
+          if (
+            !fullSite &&
+            currentUrl &&
+            typeof payload.ratio === 'number' &&
+            Number.isFinite(payload.ratio)
+          ) {
             if (pendingReaderRestoreUrlRef.current === currentUrl) {
               return;
             }
@@ -215,7 +221,15 @@ export default function IndexScreen() {
         // Ignore non-JSON messages from the page.
       }
     },
-    [currentContentSource, currentUrl, fullSite, getOfflineChapterByUrlFromState, loadOfflineChapter, loadPage, setMoreMenu]
+    [
+      currentContentSource,
+      currentUrl,
+      fullSite,
+      getOfflineChapterByUrlFromState,
+      loadOfflineChapter,
+      loadPage,
+      setMoreMenu,
+    ],
   );
 
   const handleNavigationStateChange = useCallback(
@@ -224,11 +238,7 @@ export default function IndexScreen() {
 
       if (!url || url === currentUrl || !title) return;
       if (currentContentSource === 'offline') return;
-      if (
-        url.indexOf('about') !== -1 ||
-        url.match(/data:/) ||
-        url.indexOf('postMessage') !== -1
-      ) {
+      if (url.indexOf('about') !== -1 || url.match(/data:/) || url.indexOf('postMessage') !== -1) {
         return;
       }
 
@@ -242,15 +252,27 @@ export default function IndexScreen() {
       useAppStore.getState().setHtmlContent('', '');
       loadPage(url);
     },
-    [currentContentSource, currentUrl, loadPage]
+    [currentContentSource, currentUrl, loadPage],
   );
 
   const activeHtml = isHV ? htmlHV : htmlOrig;
   const htmlSource = fullSite
     ? activeHtml
     : isHV
-      ? stripPresentationHtmlWithHvTooltips(htmlOrig, fontSize, dictionary, pinyinDictionary, theme.reader)
-      : stripPresentationHtmlWithChineseTooltips(htmlOrig, fontSize, dictionary, pinyinDictionary, theme.reader);
+      ? stripPresentationHtmlWithHvTooltips(
+          htmlOrig,
+          fontSize,
+          dictionary,
+          pinyinDictionary,
+          theme.reader,
+        )
+      : stripPresentationHtmlWithChineseTooltips(
+          htmlOrig,
+          fontSize,
+          dictionary,
+          pinyinDictionary,
+          theme.reader,
+        );
   const baseUrl = currentUrl ? extractBaseUrl(currentUrl) : undefined;
   const restoreReaderScrollPosition = useCallback(() => {
     if (!webViewRef.current || fullSite || !currentUrl) {

@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
 import { FontAwesome6 } from '@expo/vector-icons';
+import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+
 import { PendingBookmarkDraft } from '../stores/useAppStore';
-import { Theme, absoluteFill, useTheme } from '../theme';
+import { absoluteFill, Theme, useTheme } from '../theme';
 import { sanitizeBookmarkUrl } from '../utils/bookmarks';
 
 interface BookmarkEditorModalProps {
@@ -13,7 +14,13 @@ interface BookmarkEditorModalProps {
   onDelete?: (draft: PendingBookmarkDraft) => void;
 }
 
-export default function BookmarkEditorModal({ visible, draft, onClose, onSubmit, onDelete }: BookmarkEditorModalProps) {
+export default function BookmarkEditorModal({
+  visible,
+  draft,
+  onClose,
+  onSubmit,
+  onDelete,
+}: BookmarkEditorModalProps) {
   const theme = useTheme();
   const styles = createStyles(theme);
   const [title, setTitle] = useState('');
@@ -57,7 +64,9 @@ export default function BookmarkEditorModal({ visible, draft, onClose, onSubmit,
           <View style={styles.field}>
             <View style={styles.urlLabelRow}>
               <Text style={styles.label}>URL</Text>
-              {sanitizedUrl !== url.trim() && <Text style={styles.helperTag}>Tracking removed on save</Text>}
+              {sanitizedUrl !== url.trim() && (
+                <Text style={styles.helperTag}>Tracking removed on save</Text>
+              )}
             </View>
             <TextInput
               value={url}

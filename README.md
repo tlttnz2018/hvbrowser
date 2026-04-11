@@ -1,27 +1,71 @@
 # HVBrowser
-A React Native Han Viet Browser.
 
-## Technical
-* Using Typescript for better typing
-* Using MobX as an alternative to React/Redux to see how it works in an app.
-* Eslint and Prettier for clean code style
-* Using AsyncStorage for recent site visited.
+HVBrowser is an Expo / React Native reader for browsing Chinese novel sites, converting page text to Han-Viet, and saving stories or chapters for offline reading.
 
-## Features
-* Showing home with bookmarked url as buttons grid. Click on any button to go to that site and auto switching to browser view.
-* Auto translate from Chinese to Vietnamese back and forth in one button click (汉/HV)
-* Allow to inject javascript to downloaded page so you can zoom in, zoomout and restore original scale. (A+: ZoomIn, a-: ZoomOut, 1:1: Original size)
-* Allow to refresh the page by clicking on ↻
-* Allow to disable/enable CSS by clicking on (1/½)
-* Auto hide other buttons when focusing on url input
-* Allow to bookmark visited url using 🔖
-* Allow to unbookmark visited url using 📑
-* Allow to go back history using ⇦
-* Allow to switch back and forth between browser and bookmark items using 🏠
+## Current State
 
-## How to run and use
-* Install expo app follow this [link](https://expo.io/learn)
-* When the app start, click on any button in home view to go to a site and auto switching to browser view.
-* Clicking on 汉/HV for switching between Chinese/Vietnamese
-* Look at Features section for more features.
+This is a single-app mobile-first project built around a `WebView` reader, a Han-Viet conversion pipeline, and a SQLite-backed offline library.
 
+- Expo 54
+- React Native 0.81
+- React 19
+- Expo Router
+- Zustand for state
+- Expo SQLite + Kysely for persistence
+- `react-native-webview` for rendering remote and transformed HTML
+
+## What The App Does
+
+- Open Chinese novel sites inside an in-app browser/reader
+- Convert downloaded page text to Han-Viet with a one-tap toggle
+- Switch between full-site mode and cleaned reader mode
+- Adjust reader font sizing
+- Save and manage bookmarks
+- Maintain browsing history for back navigation
+- Organize offline stories and chapters
+- Queue chapter downloads for offline reading
+- Re-open downloaded chapters inside the same reader
+
+## Development
+
+### Run The App
+
+```bash
+bun start
+```
+
+Other available scripts:
+
+```bash
+bun android
+bun ios
+```
+
+## Validation
+
+The repository has basic linting and formatting scripts:
+
+```bash
+bun lint
+bun format:check
+bun typecheck
+```
+
+Notes:
+
+- `bun run lint` is working and currently reports warnings from existing code style debt.
+- `bun run format:check` may fail until the repository is fully reformatted with Prettier.
+- `bun typecheck` is still the main type-safety check for repo-wide changes.
+
+For feature work, manual testing is still important, especially for:
+
+- remote page loading
+- Han-Viet toggle
+- full-site vs reader mode
+- link interception inside the `WebView`
+- bookmark add/edit/remove flows
+- offline story and chapter download flows
+
+## Notes For Future Sessions
+
+If you are updating the app, read [`AGENTS.md`](/Users/saigon/dev/hvbrowser/AGENTS.md) first. It documents the current architecture, important invariants, risky areas like encoding and WebView injection, and a practical checklist for making safe changes.

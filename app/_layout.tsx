@@ -5,30 +5,29 @@ if (typeof global !== 'undefined') {
     (global as typeof globalThis & { Buffer?: typeof Buffer }).Buffer || Buffer;
 }
 
-import React, { useEffect, useRef } from 'react';
-import { Alert, Animated, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Slot } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import React, { useEffect, useRef } from 'react';
+import { Alert, Animated, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import SearchInput from '../components/SearchInput';
+import BookmarkEditorModal from '../components/BookmarkEditorModal';
 import BookmarkToggleButton from '../components/buttons/BookmarkToggleButton';
 import HVToggleButton from '../components/buttons/HVToggleButton';
 import LibraryToggleButton from '../components/buttons/LibraryToggleButton';
 import LibraryView from '../components/LibraryView';
-import BookmarkEditorModal from '../components/BookmarkEditorModal';
 import OfflineChapterPicker from '../components/OfflineChapterPicker';
 import OfflinePageRolePicker from '../components/OfflinePageRolePicker';
 import OfflineStoryPicker from '../components/OfflineStoryPicker';
+import SearchInput from '../components/SearchInput';
 import WebTextToolbar from '../components/toolbars/WebTextToolbar';
-
-import { useAppStore } from '../stores/useAppStore';
-import { useWebPageStore } from '../stores/useWebPageStore';
+import { useHistory } from '../hooks/useHistory';
 import { useOfflineDownloads } from '../hooks/useOfflineDownloads';
 import { usePageLoader } from '../hooks/usePageLoader';
-import { useHistory } from '../hooks/useHistory';
+import { useAppStore } from '../stores/useAppStore';
+import { useWebPageStore } from '../stores/useWebPageStore';
+import { absoluteFill, Theme, useTheme } from '../theme';
 import { ensureOfflineDownloadQueueRunning } from '../utils/offline-download-queue';
-import { Theme, absoluteFill, useTheme } from '../theme';
 
 export default function RootLayout() {
   const { loadPage, loadOfflineChapter } = usePageLoader();
@@ -40,8 +39,7 @@ export default function RootLayout() {
     dismissChapterPicker,
     dismissStoryPicker,
     enqueueSelectedChapters,
-  } =
-    useOfflineDownloads();
+  } = useOfflineDownloads();
   const theme = useTheme();
   const styles = createStyles(theme);
 
@@ -103,8 +101,7 @@ export default function RootLayout() {
     }
   }, [downloadQueue.length]);
 
-  const safeCurrentUrl =
-    currentUrl.indexOf('Bundle/Application') === -1 ? currentUrl : '';
+  const safeCurrentUrl = currentUrl.indexOf('Bundle/Application') === -1 ? currentUrl : '';
 
   const backButtonEnabled = history.length >= 1;
 
@@ -132,9 +129,7 @@ export default function RootLayout() {
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <StatusBar style={theme.statusBar} />
       <View style={styles.controlBar}>
-        <View style={styles.leadingActions}>
-          {!urlInputFocus && <LibraryToggleButton />}
-        </View>
+        <View style={styles.leadingActions}>{!urlInputFocus && <LibraryToggleButton />}</View>
         <View style={styles.urlInput}>
           <SearchInput
             placeholder="Input chinese website url"
@@ -159,13 +154,12 @@ export default function RootLayout() {
       <View style={styles.content}>
         <Slot />
         {!loading && <WebTextToolbar reloadPage={reloadPage} />}
-        {libraryDrawerOpen && <Pressable style={styles.drawerBackdrop} onPress={() => setLibraryDrawerOpen(false)} />}
+        {libraryDrawerOpen && (
+          <Pressable style={styles.drawerBackdrop} onPress={() => setLibraryDrawerOpen(false)} />
+        )}
         <Animated.View
           pointerEvents={libraryDrawerOpen ? 'auto' : 'none'}
-          style={[
-            styles.drawer,
-            { width: drawerWidth, transform: [{ translateX: drawerX }] },
-          ]}
+          style={[styles.drawer, { width: drawerWidth, transform: [{ translateX: drawerX }] }]}
         >
           <LibraryView onDismiss={() => setLibraryDrawerOpen(false)} />
         </Animated.View>
@@ -176,23 +170,19 @@ export default function RootLayout() {
           onSubmit={savePendingBookmark}
           onDelete={(draft) => {
             const url = draft.originalUrl || draft.url;
-            Alert.alert(
-              'Remove bookmark?',
-              draft.title || url,
-              [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Remove',
-                  style: 'destructive',
-                  onPress: () => {
-                    closeBookmarkEditor();
-                    removeBookmark(url).catch((error) => {
-                      console.error('Bookmark removal error:', error);
-                    });
-                  },
+            Alert.alert('Remove bookmark?', draft.title || url, [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Remove',
+                style: 'destructive',
+                onPress: () => {
+                  closeBookmarkEditor();
+                  removeBookmark(url).catch((error) => {
+                    console.error('Bookmark removal error:', error);
+                  });
                 },
-              ]
-            );
+              },
+            ]);
           }}
         />
         <OfflinePageRolePicker

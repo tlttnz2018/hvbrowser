@@ -1,8 +1,9 @@
 import React from 'react';
 import { StyleSheet, Text } from 'react-native';
-import ToolbarButton from './ToolbarButton';
+
 import { useWebPageStore } from '../../stores/useWebPageStore';
 import { Theme, useTheme } from '../../theme';
+import ToolbarButton from './ToolbarButton';
 
 export default function LibraryToggleButton() {
   const theme = useTheme();
@@ -16,9 +17,7 @@ export default function LibraryToggleButton() {
       onPress={() => setLibraryDrawerOpen(!libraryDrawerOpen)}
       variant="primary"
     >
-      <Text style={[styles.icon, libraryDrawerOpen && styles.iconOpen]}>
-        ☰
-      </Text>
+      <Text style={[styles.icon, libraryDrawerOpen && styles.iconOpen]}>☰</Text>
     </ToolbarButton>
   );
 }

@@ -1,11 +1,12 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
 import { FontAwesome6 } from '@expo/vector-icons';
-import ToolbarButton from '../buttons/ToolbarButton';
+import React from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+
 import { useOfflineDownloads } from '../../hooks/useOfflineDownloads';
 import { useAppStore } from '../../stores/useAppStore';
 import { useWebPageStore } from '../../stores/useWebPageStore';
 import { Theme, useTheme } from '../../theme';
+import ToolbarButton from '../buttons/ToolbarButton';
 
 interface WebTextToolbarProps {
   reloadPage: () => void;
@@ -15,21 +16,23 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
   const theme = useTheme();
   const styles = createStyles(theme);
   const { startDownloadFromCurrentPage } = useOfflineDownloads();
-  const { moreMenu, toggleMoreMenu, decreaseFont, resetFont, increaseFont, setThemeMode } = useWebPageStore();
+  const { moreMenu, toggleMoreMenu, decreaseFont, resetFont, increaseFont, setThemeMode } =
+    useWebPageStore();
   const currentUrl = useAppStore((state) => state.currentUrl);
   const activeDownloadId = useAppStore((state) => state.activeDownloadId);
   const downloadQueue = useAppStore((state) => state.downloadQueue);
   const currentChapter = useAppStore((state) => state.getOfflineChapterByUrlFromState(currentUrl));
   const nextThemeMode = theme.mode === 'dark' ? 'light' : 'dark';
-  const downloadLabel = currentChapter?.downloadStatus === 'downloaded'
-    ? 'saved'
-    : currentChapter?.downloadStatus === 'downloading'
-      ? 'busy'
-      : currentChapter?.downloadStatus === 'queued'
-        ? 'queued'
-        : activeDownloadId
-          ? `${downloadQueue.length + 1}`
-          : 'DL';
+  const downloadLabel =
+    currentChapter?.downloadStatus === 'downloaded'
+      ? 'saved'
+      : currentChapter?.downloadStatus === 'downloading'
+        ? 'busy'
+        : currentChapter?.downloadStatus === 'queued'
+          ? 'queued'
+          : activeDownloadId
+            ? `${downloadQueue.length + 1}`
+            : 'DL';
 
   return (
     <View style={styles.container}>
@@ -49,11 +52,7 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
             onPress={() => setThemeMode(nextThemeMode)}
             style={styles.fab}
           >
-            <FontAwesome6
-              name="circle-half-stroke"
-              size={16}
-              color={theme.colors.text}
-            />
+            <FontAwesome6 name="circle-half-stroke" size={16} color={theme.colors.text} />
           </ToolbarButton>
           <ToolbarButton accessibilityLabel="Reload page" onPress={reloadPage} style={styles.fab}>
             <Text style={styles.iconLabel}>{'↻'}</Text>

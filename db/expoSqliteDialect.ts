@@ -1,4 +1,4 @@
-import { openDatabaseSync, SQLiteDatabase, SQLiteBindParams } from 'expo-sqlite';
+import { openDatabaseSync, SQLiteBindParams, SQLiteDatabase } from 'expo-sqlite';
 import {
   CompiledQuery,
   DatabaseConnection,
@@ -53,7 +53,9 @@ class ExpoSqliteConnection implements DatabaseConnection {
 
       return {
         numAffectedRows:
-          result.changes !== undefined && result.changes !== null ? BigInt(result.changes) : undefined,
+          result.changes !== undefined && result.changes !== null
+            ? BigInt(result.changes)
+            : undefined,
         insertId:
           result.lastInsertRowId !== undefined && result.lastInsertRowId !== null
             ? BigInt(result.lastInsertRowId)

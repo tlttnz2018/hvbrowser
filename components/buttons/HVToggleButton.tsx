@@ -1,6 +1,7 @@
 import React from 'react';
-import SegmentedControl from './SegmentedControl';
+
 import { useWebPageStore } from '../../stores/useWebPageStore';
+import SegmentedControl from './SegmentedControl';
 
 export default function HVToggleButton() {
   const isHV = useWebPageStore((s) => s.isHV);

@@ -17,10 +17,17 @@ function getOrigin(url: string): string | null {
   }
 }
 
-function getCandidateOrigins(story: OfflineStoryRecord, chapters: OfflineChapterRecord[]): string[] {
+function getCandidateOrigins(
+  story: OfflineStoryRecord,
+  chapters: OfflineChapterRecord[],
+): string[] {
   const originSet = new Set<string>();
 
-  for (const value of [story.homePageUrl, story.indexPageUrl, ...chapters.map((chapter) => chapter.chapterUrl)]) {
+  for (const value of [
+    story.homePageUrl,
+    story.indexPageUrl,
+    ...chapters.map((chapter) => chapter.chapterUrl),
+  ]) {
     if (!value) {
       continue;
     }
@@ -37,13 +44,15 @@ function getCandidateOrigins(story: OfflineStoryRecord, chapters: OfflineChapter
 export function resolveMostLikelyStoryForUrl(
   currentUrl: string,
   stories: OfflineStoryRecord[],
-  chapters: OfflineChapterRecord[]
+  chapters: OfflineChapterRecord[],
 ): OfflineStoryRecord | null {
   const exactStory =
-    stories.find((story) => story.homePageUrl === currentUrl || story.indexPageUrl === currentUrl) ||
+    stories.find(
+      (story) => story.homePageUrl === currentUrl || story.indexPageUrl === currentUrl,
+    ) ||
     (() => {
       const chapter = chapters.find((item) => item.chapterUrl === currentUrl);
-      return chapter ? stories.find((story) => story.id === chapter.storyId) ?? null : null;
+      return chapter ? (stories.find((story) => story.id === chapter.storyId) ?? null) : null;
     })();
 
   if (exactStory) {
@@ -66,7 +75,7 @@ export function resolveMostLikelyStoryForUrl(
 export function resolveOfflinePageRole(
   currentUrl: string,
   stories: OfflineStoryRecord[],
-  chapters: OfflineChapterRecord[]
+  chapters: OfflineChapterRecord[],
 ): ResolvedOfflinePageRole {
   const exactChapter = chapters.find((chapter) => chapter.chapterUrl === currentUrl) ?? null;
   if (exactChapter) {

@@ -1,12 +1,5 @@
-import {
-  Generated,
-  Kysely,
-  Migrator,
-  Migration,
-  MigrationProvider,
-  Selectable,
-  sql,
-} from 'kysely';
+import { Generated, Kysely, Migration, MigrationProvider, Migrator, Selectable, sql } from 'kysely';
+
 import { createExpoSqliteDatabase, ExpoSqliteDialect } from './expoSqliteDialect';
 
 const DATABASE_NAME = 'hvbrowser.db';
@@ -105,7 +98,9 @@ const migrations: Record<string, Migration> = {
         .createTable('offline_chapters')
         .ifNotExists()
         .addColumn('id', 'integer', (col) => col.primaryKey().autoIncrement())
-        .addColumn('story_id', 'integer', (col) => col.notNull().references('offline_stories.id').onDelete('cascade'))
+        .addColumn('story_id', 'integer', (col) =>
+          col.notNull().references('offline_stories.id').onDelete('cascade'),
+        )
         .addColumn('chapter_name', 'text', (col) => col.notNull())
         .addColumn('chapter_url', 'text', (col) => col.notNull().unique())
         .addColumn('chapter_order', 'integer')
@@ -133,10 +128,10 @@ const migrations: Record<string, Migration> = {
         .execute();
 
       await sql`create unique index if not exists idx_offline_stories_home_page_url on offline_stories(home_page_url) where home_page_url is not null`.execute(
-        db
+        db,
       );
       await sql`create unique index if not exists idx_offline_stories_index_page_url on offline_stories(index_page_url) where index_page_url is not null`.execute(
-        db
+        db,
       );
     },
   },
@@ -216,7 +211,9 @@ export async function ensureOfflineDbReady() {
   return initializationPromise;
 }
 
-export async function upsertOfflineStory(input: UpsertOfflineStoryInput): Promise<OfflineStoryRecord> {
+export async function upsertOfflineStory(
+  input: UpsertOfflineStoryInput,
+): Promise<OfflineStoryRecord> {
   await ensureOfflineDbReady();
 
   const now = new Date().toISOString();
@@ -256,7 +253,9 @@ export async function upsertOfflineStory(input: UpsertOfflineStoryInput): Promis
   return mapOfflineStoryRow(inserted);
 }
 
-export async function getOfflineStoryByIndexPageUrl(indexPageUrl: string): Promise<OfflineStoryRecord | null> {
+export async function getOfflineStoryByIndexPageUrl(
+  indexPageUrl: string,
+): Promise<OfflineStoryRecord | null> {
   await ensureOfflineDbReady();
 
   const row = await offlineDb
@@ -268,7 +267,9 @@ export async function getOfflineStoryByIndexPageUrl(indexPageUrl: string): Promi
   return row ? mapOfflineStoryRow(row) : null;
 }
 
-export async function getOfflineStoryByHomePageUrl(homePageUrl: string): Promise<OfflineStoryRecord | null> {
+export async function getOfflineStoryByHomePageUrl(
+  homePageUrl: string,
+): Promise<OfflineStoryRecord | null> {
   await ensureOfflineDbReady();
 
   const row = await offlineDb
@@ -280,7 +281,9 @@ export async function getOfflineStoryByHomePageUrl(homePageUrl: string): Promise
   return row ? mapOfflineStoryRow(row) : null;
 }
 
-export async function getOfflineStoryByChapterUrl(chapterUrl: string): Promise<OfflineStoryRecord | null> {
+export async function getOfflineStoryByChapterUrl(
+  chapterUrl: string,
+): Promise<OfflineStoryRecord | null> {
   await ensureOfflineDbReady();
 
   const row = await offlineDb
@@ -320,7 +323,9 @@ export async function listOfflineStories(): Promise<OfflineStoryRecord[]> {
   return rows.map(mapOfflineStoryRow);
 }
 
-export async function saveOfflineChapter(input: SaveOfflineChapterInput): Promise<OfflineChapterRecord> {
+export async function saveOfflineChapter(
+  input: SaveOfflineChapterInput,
+): Promise<OfflineChapterRecord> {
   await ensureOfflineDbReady();
 
   const now = new Date().toISOString();
@@ -330,7 +335,7 @@ export async function saveOfflineChapter(input: SaveOfflineChapterInput): Promis
   const downloadStatus = input.downloadStatus ?? existing?.downloadStatus ?? 'queued';
   const downloadError = input.downloadError ?? existing?.downloadError ?? null;
   const downloadedAt =
-    input.downloadedAt !== undefined ? input.downloadedAt : existing?.downloadedAt ?? null;
+    input.downloadedAt !== undefined ? input.downloadedAt : (existing?.downloadedAt ?? null);
 
   await offlineDb
     .insertInto('offline_chapters')
@@ -358,7 +363,7 @@ export async function saveOfflineChapter(input: SaveOfflineChapterInput): Promis
         download_error: downloadError,
         downloaded_at: downloadedAt,
         updated_at: now,
-      })
+      }),
     )
     .execute();
 
@@ -392,7 +397,9 @@ export async function listOfflineChaptersByStory(storyId: number): Promise<Offli
   return rows.map(mapOfflineChapterRow);
 }
 
-export async function getOfflineChapterByUrl(chapterUrl: string): Promise<OfflineChapterRecord | null> {
+export async function getOfflineChapterByUrl(
+  chapterUrl: string,
+): Promise<OfflineChapterRecord | null> {
   await ensureOfflineDbReady();
 
   const row = await offlineDb
@@ -420,7 +427,9 @@ export async function updateOfflineChapterStatus(
   id: number,
   status: OfflineChapterStatus,
   error?: string | null,
-  payload?: Partial<Pick<OfflineChapterRecord, 'chapterName' | 'originalHtml' | 'convertedHvHtml' | 'downloadedAt'>>
+  payload?: Partial<
+    Pick<OfflineChapterRecord, 'chapterName' | 'originalHtml' | 'convertedHvHtml' | 'downloadedAt'>
+  >,
 ): Promise<OfflineChapterRecord | null> {
   await ensureOfflineDbReady();
 
@@ -443,7 +452,10 @@ export async function updateOfflineChapterStatus(
   return getOfflineChapterById(id);
 }
 
-export async function attachHomePageToStory(storyId: number, homePageUrl: string): Promise<OfflineStoryRecord | null> {
+export async function attachHomePageToStory(
+  storyId: number,
+  homePageUrl: string,
+): Promise<OfflineStoryRecord | null> {
   await ensureOfflineDbReady();
 
   await offlineDb
@@ -458,7 +470,10 @@ export async function attachHomePageToStory(storyId: number, homePageUrl: string
   return getOfflineStoryById(storyId);
 }
 
-export async function attachIndexPageToStory(storyId: number, indexPageUrl: string): Promise<OfflineStoryRecord | null> {
+export async function attachIndexPageToStory(
+  storyId: number,
+  indexPageUrl: string,
+): Promise<OfflineStoryRecord | null> {
   await ensureOfflineDbReady();
 
   await offlineDb

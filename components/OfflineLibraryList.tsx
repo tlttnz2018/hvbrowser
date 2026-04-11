@@ -1,5 +1,5 @@
-import React, { useMemo, useRef, useState } from 'react';
 import { FontAwesome6 } from '@expo/vector-icons';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -14,8 +14,9 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import type { OfflineChapterRecord, OfflineStoryRecord } from '../db/offline';
-import { Theme, absoluteFill, useTheme } from '../theme';
+import { absoluteFill, Theme, useTheme } from '../theme';
 
 type OfflineViewMode = 'grouped' | 'chapters';
 type OfflineFilterKey = 'all' | 'downloading' | 'queued' | 'downloaded' | 'failed';
@@ -68,8 +69,16 @@ const FILTER_OPTIONS: Array<{ key: OfflineFilterKey; label: string }> = [
 ];
 
 const MODE_OPTIONS: Array<{ key: OfflineViewMode; label: string; description: string }> = [
-  { key: 'grouped', label: 'Stories', description: 'Show stories only, then open a dedicated chapter browser.' },
-  { key: 'chapters', label: 'All chapters', description: 'Browse one flat virtualized chapter list across stories.' },
+  {
+    key: 'grouped',
+    label: 'Stories',
+    description: 'Show stories only, then open a dedicated chapter browser.',
+  },
+  {
+    key: 'chapters',
+    label: 'All chapters',
+    description: 'Browse one flat virtualized chapter list across stories.',
+  },
 ];
 
 function statusColor(theme: Theme, status: OfflineChapterRecord['downloadStatus']) {
@@ -82,7 +91,12 @@ function matchesChapterFilter(chapter: OfflineChapterRecord, filterKey: OfflineF
   return filterKey === 'all' || chapter.downloadStatus === filterKey;
 }
 
-function SwipeToDeleteCard({ disabled = false, gap = false, onDelete, children }: SwipeToDeleteCardProps) {
+function SwipeToDeleteCard({
+  disabled = false,
+  gap = false,
+  onDelete,
+  children,
+}: SwipeToDeleteCardProps) {
   const theme = useTheme();
   const styles = createStyles(theme);
   const translateX = useRef(new Animated.Value(0)).current;
@@ -113,7 +127,9 @@ function SwipeToDeleteCard({ disabled = false, gap = false, onDelete, children }
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_, gestureState) =>
-          !disabled && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && gestureState.dx < -8,
+          !disabled &&
+          Math.abs(gestureState.dx) > Math.abs(gestureState.dy) &&
+          gestureState.dx < -8,
         onPanResponderMove: (_, gestureState) => {
           if (disabled) return;
           translateX.setValue(Math.max(gestureState.dx, -132));
@@ -128,7 +144,7 @@ function SwipeToDeleteCard({ disabled = false, gap = false, onDelete, children }
         },
         onPanResponderTerminate: resetPosition,
       }),
-    [disabled, translateX]
+    [disabled, translateX],
   );
 
   return (
@@ -136,7 +152,10 @@ function SwipeToDeleteCard({ disabled = false, gap = false, onDelete, children }
       <View style={[styles.deleteBackground, disabled && styles.deleteBackgroundDisabled]}>
         <Text style={styles.deleteLabel}>Delete</Text>
       </View>
-      <Animated.View style={{ transform: [{ translateX }] }} {...(disabled ? {} : panResponder.panHandlers)}>
+      <Animated.View
+        style={{ transform: [{ translateX }] }}
+        {...(disabled ? {} : panResponder.panHandlers)}
+      >
         {children}
       </Animated.View>
     </View>
@@ -158,8 +177,13 @@ function SheetOption({
   const styles = createStyles(theme);
 
   return (
-    <Pressable onPress={onPress} style={[styles.sheetOption, selected && styles.sheetOptionSelected]}>
-      <Text style={[styles.sheetOptionTitle, selected && styles.sheetOptionTitleSelected]}>{label}</Text>
+    <Pressable
+      onPress={onPress}
+      style={[styles.sheetOption, selected && styles.sheetOptionSelected]}
+    >
+      <Text style={[styles.sheetOptionTitle, selected && styles.sheetOptionTitleSelected]}>
+        {label}
+      </Text>
       {!!description && <Text style={styles.sheetOptionDescription}>{description}</Text>}
     </Pressable>
   );
@@ -242,10 +266,15 @@ export default function OfflineLibraryList({
       .map((story) => {
         const chapters = chaptersByStory[story.id] ?? [];
         const chapterCount = chapters.length;
-        const downloadedCount = chapters.filter((chapter) => chapter.downloadStatus === 'downloaded').length;
-        const failedCount = chapters.filter((chapter) => chapter.downloadStatus === 'failed').length;
-        const queuedCount = chapters.filter((chapter) =>
-          chapter.downloadStatus === 'queued' || chapter.downloadStatus === 'downloading'
+        const downloadedCount = chapters.filter(
+          (chapter) => chapter.downloadStatus === 'downloaded',
+        ).length;
+        const failedCount = chapters.filter(
+          (chapter) => chapter.downloadStatus === 'failed',
+        ).length;
+        const queuedCount = chapters.filter(
+          (chapter) =>
+            chapter.downloadStatus === 'queued' || chapter.downloadStatus === 'downloading',
         ).length;
 
         return {
@@ -266,7 +295,7 @@ export default function OfflineLibraryList({
         return (
           row.story.name.toLowerCase().includes(normalizedQuery) ||
           (chaptersByStory[row.story.id] ?? []).some((chapter) =>
-            `${chapter.chapterName} ${chapter.chapterUrl}`.toLowerCase().includes(normalizedQuery)
+            `${chapter.chapterName} ${chapter.chapterUrl}`.toLowerCase().includes(normalizedQuery),
           )
         );
       });
@@ -283,7 +312,9 @@ export default function OfflineLibraryList({
 
         if (
           normalizedQuery &&
-          !`${story.name} ${chapter.chapterName} ${chapter.chapterUrl}`.toLowerCase().includes(normalizedQuery)
+          !`${story.name} ${chapter.chapterName} ${chapter.chapterUrl}`
+            .toLowerCase()
+            .includes(normalizedQuery)
         ) {
           return;
         }
@@ -312,7 +343,9 @@ export default function OfflineLibraryList({
           return true;
         }
 
-        return `${chapter.chapterName} ${chapter.chapterUrl}`.toLowerCase().includes(storyNormalizedQuery);
+        return `${chapter.chapterName} ${chapter.chapterUrl}`
+          .toLowerCase()
+          .includes(storyNormalizedQuery);
       })
       .map((chapter) => ({
         id: `chapter-${chapter.id}`,
@@ -331,8 +364,12 @@ export default function OfflineLibraryList({
   }, [activeDownloadId, chapterRows]);
 
   const activeStoryJumpTargets = useMemo(() => {
-    const activeIndex = activeStoryChapterRows.findIndex((row) => row.chapter.id === activeDownloadId);
-    const failedIndex = activeStoryChapterRows.findIndex((row) => row.chapter.downloadStatus === 'failed');
+    const activeIndex = activeStoryChapterRows.findIndex(
+      (row) => row.chapter.id === activeDownloadId,
+    );
+    const failedIndex = activeStoryChapterRows.findIndex(
+      (row) => row.chapter.downloadStatus === 'failed',
+    );
     return { activeIndex, failedIndex };
   }, [activeDownloadId, activeStoryChapterRows]);
 
@@ -371,16 +408,20 @@ export default function OfflineLibraryList({
     const { story, chapterCount, downloadedCount, failedCount, queuedCount } = item;
 
     const confirmRemoveStory = () => {
-      Alert.alert('Remove offline book?', `${story.name}\nThis will delete all saved offline chapters for this story.`, [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => {
-            void onRemoveStory(story.id);
+      Alert.alert(
+        'Remove offline book?',
+        `${story.name}\nThis will delete all saved offline chapters for this story.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Remove',
+            style: 'destructive',
+            onPress: () => {
+              void onRemoveStory(story.id);
+            },
           },
-        },
-      ]);
+        ],
+      );
     };
 
     return (
@@ -405,7 +446,9 @@ export default function OfflineLibraryList({
             )}
             {failedCount > 0 && (
               <View style={[styles.storyBadge, styles.storyBadgeDanger]}>
-                <Text style={[styles.storyBadgeLabel, styles.storyBadgeDangerLabel]}>{failedCount} failed</Text>
+                <Text style={[styles.storyBadgeLabel, styles.storyBadgeDangerLabel]}>
+                  {failedCount} failed
+                </Text>
               </View>
             )}
           </View>
@@ -479,29 +522,42 @@ export default function OfflineLibraryList({
           <TextInput
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder={viewMode === 'grouped' ? 'Search stories or chapters' : 'Search all chapters'}
+            placeholder={
+              viewMode === 'grouped' ? 'Search stories or chapters' : 'Search all chapters'
+            }
             placeholderTextColor={theme.colors.inputPlaceholder}
             style={styles.searchInput}
           />
           {!!searchQuery && (
-            <Pressable accessibilityLabel="Clear search" onPress={() => setSearchQuery('')} style={styles.clearButton}>
+            <Pressable
+              accessibilityLabel="Clear search"
+              onPress={() => setSearchQuery('')}
+              style={styles.clearButton}
+            >
               <FontAwesome6 name="xmark" size={12} color={theme.colors.textAccent} />
             </Pressable>
           )}
         </View>
         <View style={styles.toolbarButtonRow}>
           <Pressable onPress={() => setOverlayKind('mode')} style={styles.toolbarButton}>
-            <Text style={styles.toolbarButtonLabel}>{viewMode === 'grouped' ? 'Stories' : 'All'}</Text>
+            <Text style={styles.toolbarButtonLabel}>
+              {viewMode === 'grouped' ? 'Stories' : 'All'}
+            </Text>
           </Pressable>
           <Pressable onPress={() => setOverlayKind('filter')} style={styles.toolbarButton}>
-            <Text style={styles.toolbarButtonLabel}>{filterKey === 'all' ? 'Filter' : 'Status'}</Text>
+            <Text style={styles.toolbarButtonLabel}>
+              {filterKey === 'all' ? 'Filter' : 'Status'}
+            </Text>
           </Pressable>
           <Pressable onPress={() => setOverlayKind('jump')} style={styles.toolbarButton}>
             <Text style={styles.toolbarButtonLabel}>Jump</Text>
           </Pressable>
         </View>
         <Text style={styles.compactMeta}>
-          {viewMode === 'grouped' ? `${storyRows.length} stories` : `${chapterRows.length} chapters`} • {summaryLabel}
+          {viewMode === 'grouped'
+            ? `${storyRows.length} stories`
+            : `${chapterRows.length} chapters`}{' '}
+          • {summaryLabel}
           {activeDownloadId ? ' • 1 active' : ''}
           {!!lastError ? ' • last run failed' : ''}
         </Text>
@@ -523,13 +579,16 @@ export default function OfflineLibraryList({
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyTitle}>No offline stories yet</Text>
                 <Text style={styles.emptyText}>
-                  Use the download button from the reader to save chapters, then open each story in a focused chapter browser.
+                  Use the download button from the reader to save chapters, then open each story in
+                  a focused chapter browser.
                 </Text>
               </View>
             ) : (
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyTitle}>No stories match this search</Text>
-                <Text style={styles.emptyText}>Try a shorter search, or switch to the all-chapters view.</Text>
+                <Text style={styles.emptyText}>
+                  Try a shorter search, or switch to the all-chapters view.
+                </Text>
               </View>
             )
           }
@@ -545,26 +604,36 @@ export default function OfflineLibraryList({
           removeClippedSubviews
           windowSize={12}
           onScrollToIndexFailed={({ index }) => {
-            requestAnimationFrame(() => scrollToMainChapterIndex(Math.min(index, chapterRows.length - 1)));
+            requestAnimationFrame(() =>
+              scrollToMainChapterIndex(Math.min(index, chapterRows.length - 1)),
+            );
           }}
           renderItem={({ item }) => renderChapterCard(item)}
           ListEmptyComponent={
             stories.length === 0 ? (
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyTitle}>No offline stories yet</Text>
-                <Text style={styles.emptyText}>Save some chapters first, then they will appear here.</Text>
+                <Text style={styles.emptyText}>
+                  Save some chapters first, then they will appear here.
+                </Text>
               </View>
             ) : (
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyTitle}>No chapters match this view</Text>
-                <Text style={styles.emptyText}>Try another status filter or clear the search query.</Text>
+                <Text style={styles.emptyText}>
+                  Try another status filter or clear the search query.
+                </Text>
               </View>
             )
           }
         />
       )}
 
-      <CompactSheet visible={overlayKind === 'mode'} title="View mode" onClose={() => setOverlayKind(null)}>
+      <CompactSheet
+        visible={overlayKind === 'mode'}
+        title="View mode"
+        onClose={() => setOverlayKind(null)}
+      >
         {MODE_OPTIONS.map((option) => (
           <SheetOption
             key={option.key}
@@ -579,7 +648,11 @@ export default function OfflineLibraryList({
         ))}
       </CompactSheet>
 
-      <CompactSheet visible={overlayKind === 'filter'} title="Status filter" onClose={() => setOverlayKind(null)}>
+      <CompactSheet
+        visible={overlayKind === 'filter'}
+        title="Status filter"
+        onClose={() => setOverlayKind(null)}
+      >
         {FILTER_OPTIONS.map((option) => (
           <SheetOption
             key={option.key}
@@ -593,7 +666,11 @@ export default function OfflineLibraryList({
         ))}
       </CompactSheet>
 
-      <CompactSheet visible={overlayKind === 'jump'} title="Jump to" onClose={() => setOverlayKind(null)}>
+      <CompactSheet
+        visible={overlayKind === 'jump'}
+        title="Jump to"
+        onClose={() => setOverlayKind(null)}
+      >
         <SheetOption
           label="Top"
           description="Go back to the start of the current list."
@@ -648,10 +725,14 @@ export default function OfflineLibraryList({
                 {activeStory?.name ?? ''}
               </Text>
               <Text style={styles.storyBrowserMeta}>
-                {activeStoryChapterRows.length} chapters • {filterKey === 'all' ? 'all statuses' : filterKey}
+                {activeStoryChapterRows.length} chapters •{' '}
+                {filterKey === 'all' ? 'all statuses' : filterKey}
               </Text>
             </View>
-            <Pressable onPress={() => setStoryOverlayKind('filter')} style={styles.storyBrowserFilter}>
+            <Pressable
+              onPress={() => setStoryOverlayKind('filter')}
+              style={styles.storyBrowserFilter}
+            >
               <Text style={styles.storyBrowserFilterLabel}>Filter</Text>
             </Pressable>
           </View>
@@ -676,20 +757,29 @@ export default function OfflineLibraryList({
           </View>
 
           <View style={styles.storyBrowserActions}>
-            <Pressable onPress={() => scrollToActiveStoryIndex(0)} style={styles.storyBrowserAction}>
+            <Pressable
+              onPress={() => scrollToActiveStoryIndex(0)}
+              style={styles.storyBrowserAction}
+            >
               <Text style={styles.storyBrowserActionLabel}>Top</Text>
             </Pressable>
             <Pressable
               disabled={activeStoryJumpTargets.activeIndex < 0}
               onPress={() => scrollToActiveStoryIndex(activeStoryJumpTargets.activeIndex)}
-              style={[styles.storyBrowserAction, activeStoryJumpTargets.activeIndex < 0 && styles.storyBrowserActionDisabled]}
+              style={[
+                styles.storyBrowserAction,
+                activeStoryJumpTargets.activeIndex < 0 && styles.storyBrowserActionDisabled,
+              ]}
             >
               <Text style={styles.storyBrowserActionLabel}>Active</Text>
             </Pressable>
             <Pressable
               disabled={activeStoryJumpTargets.failedIndex < 0}
               onPress={() => scrollToActiveStoryIndex(activeStoryJumpTargets.failedIndex)}
-              style={[styles.storyBrowserAction, activeStoryJumpTargets.failedIndex < 0 && styles.storyBrowserActionDisabled]}
+              style={[
+                styles.storyBrowserAction,
+                activeStoryJumpTargets.failedIndex < 0 && styles.storyBrowserActionDisabled,
+              ]}
             >
               <Text style={styles.storyBrowserActionLabel}>Failed</Text>
             </Pressable>
@@ -705,13 +795,17 @@ export default function OfflineLibraryList({
             removeClippedSubviews
             windowSize={12}
             onScrollToIndexFailed={({ index }) => {
-              requestAnimationFrame(() => scrollToActiveStoryIndex(Math.min(index, activeStoryChapterRows.length - 1)));
+              requestAnimationFrame(() =>
+                scrollToActiveStoryIndex(Math.min(index, activeStoryChapterRows.length - 1)),
+              );
             }}
             renderItem={({ item }) => renderChapterCard(item)}
             ListEmptyComponent={
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyTitle}>No chapters match this story view</Text>
-                <Text style={styles.emptyText}>Try another filter or clear the in-story search.</Text>
+                <Text style={styles.emptyText}>
+                  Try another filter or clear the in-story search.
+                </Text>
               </View>
             }
           />

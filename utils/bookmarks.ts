@@ -41,7 +41,11 @@ export function sanitizeBookmarkUrl(input: string): string {
     const paramsToDelete: string[] = [];
 
     parsed.searchParams.forEach((_, key) => {
-      if (TRACKING_QUERY_PREFIXES.some((prefix) => key.toLowerCase() === prefix || key.toLowerCase().startsWith(prefix))) {
+      if (
+        TRACKING_QUERY_PREFIXES.some(
+          (prefix) => key.toLowerCase() === prefix || key.toLowerCase().startsWith(prefix),
+        )
+      ) {
         paramsToDelete.push(key);
       }
     });
@@ -66,7 +70,9 @@ export function urlsMatchForBookmark(candidateUrl: string, currentUrl: string): 
 }
 
 export function getBookmarkImage(url: string): string | null {
-  const piaotiaMatch = url.match(/^https?:\/\/(?:www\.)?piaotia\.com\/bookinfo\/(\d+)\/(\d+)\.html$/i);
+  const piaotiaMatch = url.match(
+    /^https?:\/\/(?:www\.)?piaotia\.com\/bookinfo\/(\d+)\/(\d+)\.html$/i,
+  );
 
   if (piaotiaMatch) {
     const [, categoryId, bookId] = piaotiaMatch;

@@ -1,8 +1,12 @@
 import { useMemo } from 'react';
-import { ColorSchemeName, StyleSheet, TextStyle, ViewStyle, useColorScheme } from 'react-native';
+import { ColorSchemeName, StyleSheet, TextStyle, useColorScheme, ViewStyle } from 'react-native';
+
 import { ThemeModePreference, useWebPageStore } from './stores/useWebPageStore';
 
-type ShadowToken = Pick<ViewStyle, 'shadowColor' | 'shadowOpacity' | 'shadowRadius' | 'shadowOffset' | 'elevation'>;
+type ShadowToken = Pick<
+  ViewStyle,
+  'shadowColor' | 'shadowOpacity' | 'shadowRadius' | 'shadowOffset' | 'elevation'
+>;
 
 interface ReaderTheme {
   background: string;
@@ -315,7 +319,7 @@ export function useTheme(): Theme {
       ...theme,
       preference: themeMode,
     }),
-    [theme, themeMode]
+    [theme, themeMode],
   );
 }
 

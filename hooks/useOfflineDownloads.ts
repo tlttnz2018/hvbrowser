@@ -1,7 +1,8 @@
-import { Alert } from 'react-native';
-import { parseDocument } from 'htmlparser2';
-import { findAll, getAttributeValue, textContent } from 'domutils';
 import type { Element } from 'domhandler';
+import { findAll, getAttributeValue, textContent } from 'domutils';
+import { parseDocument } from 'htmlparser2';
+import { Alert } from 'react-native';
+
 import {
   attachHomePageToStory,
   attachIndexPageToStory,
@@ -12,7 +13,11 @@ import {
   saveOfflineChapter,
   upsertOfflineStory,
 } from '../db/offline';
-import { useAppStore, type OfflineChapterCandidate, type PendingOfflineAction } from '../stores/useAppStore';
+import {
+  type OfflineChapterCandidate,
+  type PendingOfflineAction,
+  useAppStore,
+} from '../stores/useAppStore';
 import { absolute } from '../utils/normalize-url';
 import { ensureOfflineDownloadQueueRunning } from '../utils/offline-download-queue';
 import { resolveOfflinePageRole } from '../utils/offline-page-role';
@@ -30,11 +35,12 @@ function extractStoryNameGuess(pageTitle: string, fallback: string) {
     .filter(Boolean);
 
   const nonChapterSegments = segments.filter(
-    (segment) => !/(chapter|chap\b|chuong|chương|hoi\b|hồi|phan\b|phần|tap\b|tập|episode|ep\b)/i.test(segment)
+    (segment) =>
+      !/(chapter|chap\b|chuong|chương|hoi\b|hồi|phan\b|phần|tap\b|tập|episode|ep\b)/i.test(segment),
   );
 
   const preferred = (nonChapterSegments.length > 0 ? nonChapterSegments : segments).sort(
-    (left, right) => right.length - left.length
+    (left, right) => right.length - left.length,
   )[0];
 
   return preferred || title;
@@ -46,7 +52,9 @@ function tokenizeTitle(value: string) {
     .split(/[^a-z0-9\u00c0-\u024f\u1e00-\u1eff]+/i)
     .map((token) => token.trim())
     .filter((token) => token.length >= 3)
-    .filter((token) => !/^(chapter|chap|chuong|chương|hoi|hồi|phan|phần|tap|tập|episode)$/.test(token));
+    .filter(
+      (token) => !/^(chapter|chap|chuong|chương|hoi|hồi|phan|phần|tap|tập|episode)$/.test(token),
+    );
 }
 
 function findBestStoryTitleMatch(stories: OfflineStoryRecord[], storyNameGuess: string) {
@@ -77,13 +85,13 @@ function flattenChapterCandidates(action: PendingOfflineAction, selectedUrls: st
 function extractChapterCandidates(
   currentUrl: string,
   html: string,
-  existingCandidates: ReturnType<typeof useAppStore.getState>['offlineChaptersByStory']
+  existingCandidates: ReturnType<typeof useAppStore.getState>['offlineChaptersByStory'],
 ): OfflineChapterCandidate[] {
   const doc = parseDocument(html.replace(/^\ufeff/, ''), { decodeEntities: true });
   const chapterMap = new Map(
     Object.values(existingCandidates)
       .flat()
-      .map((chapter) => [chapter.chapterUrl, chapter] as const)
+      .map((chapter) => [chapter.chapterUrl, chapter] as const),
   );
   const seen = new Set<string>();
   let order = 0;
@@ -143,7 +151,7 @@ export function useOfflineDownloads() {
   async function queueCurrentChapter(
     story: OfflineStoryRecord,
     action: PendingOfflineAction,
-    options?: { silent?: boolean }
+    options?: { silent?: boolean },
   ) {
     const state = useAppStore.getState();
     const chapterTitle = cleanLabel(action.pageTitle, action.currentUrl);
@@ -169,7 +177,7 @@ export function useOfflineDownloads() {
           'Saved offline',
           chapter.downloadStatus === 'downloaded'
             ? 'This chapter was saved from the page already open in the reader.'
-            : 'This chapter was saved for offline reading.'
+            : 'This chapter was saved for offline reading.',
         );
       }
       return;
@@ -199,7 +207,7 @@ export function useOfflineDownloads() {
     const candidates = extractChapterCandidates(
       action.currentUrl,
       useAppStore.getState().htmlOrig,
-      useAppStore.getState().offlineChaptersByStory
+      useAppStore.getState().offlineChaptersByStory,
     );
 
     await refreshOfflineLibrary();
@@ -214,7 +222,7 @@ export function useOfflineDownloads() {
   async function continueWithStory(
     story: OfflineStoryRecord,
     action: PendingOfflineAction,
-    selectedRoles: Array<'home page' | 'index page' | 'chapter page'>
+    selectedRoles: Array<'home page' | 'index page' | 'chapter page'>,
   ) {
     const includesIndex = selectedRoles.includes('index page');
     const includesChapter = selectedRoles.includes('chapter page');
@@ -246,7 +254,10 @@ export function useOfflineDownloads() {
 
     if (includesChapter) {
       if (includesHome) {
-        Alert.alert('Page roles saved', 'This page was remembered and the current chapter was added to the queue.');
+        Alert.alert(
+          'Page roles saved',
+          'This page was remembered and the current chapter was added to the queue.',
+        );
       }
       return;
     }
@@ -258,13 +269,13 @@ export function useOfflineDownloads() {
 
   function promptForStoryResolution(
     action: PendingOfflineAction,
-    selectedRoles: Array<'home page' | 'index page' | 'chapter page'>
+    selectedRoles: Array<'home page' | 'index page' | 'chapter page'>,
   ) {
     const state = useAppStore.getState();
     const defaultStoryName = extractStoryNameGuess(action.pageTitle, 'Untitled story');
     const suggestedStory =
       (state.offlineStories.some((story) => story.id === action.storyId)
-        ? state.offlineStories.find((story) => story.id === action.storyId) ?? null
+        ? (state.offlineStories.find((story) => story.id === action.storyId) ?? null)
         : null) || findBestStoryTitleMatch(state.offlineStories, defaultStoryName);
     const suggestedStoryId = suggestedStory?.id ?? null;
 
@@ -278,7 +289,7 @@ export function useOfflineDownloads() {
 
   async function applyPageRoles(
     action: PendingOfflineAction,
-    selectedRoles: Array<'home page' | 'index page' | 'chapter page'>
+    selectedRoles: Array<'home page' | 'index page' | 'chapter page'>,
   ) {
     if (selectedRoles.length === 0) {
       return;
@@ -348,7 +359,9 @@ export function useOfflineDownloads() {
     openPageRolePicker(pendingAction);
   }
 
-  async function confirmPageRoles(selectedRoles: Array<'home page' | 'index page' | 'chapter page'>) {
+  async function confirmPageRoles(
+    selectedRoles: Array<'home page' | 'index page' | 'chapter page'>,
+  ) {
     const action = useAppStore.getState().pendingOfflineAction;
     if (!action) {
       return;
@@ -365,7 +378,8 @@ export function useOfflineDownloads() {
 
     let story: OfflineStoryRecord | null = null;
     if (selection.storyId) {
-      story = useAppStore.getState().offlineStories.find((item) => item.id === selection.storyId) ?? null;
+      story =
+        useAppStore.getState().offlineStories.find((item) => item.id === selection.storyId) ?? null;
     } else {
       const trimmedName = cleanLabel(selection.name ?? '', pending.defaultStoryName);
       story = await upsertOfflineStory({ name: trimmedName });
@@ -409,7 +423,9 @@ export function useOfflineDownloads() {
 
     Alert.alert(
       addedCount > 0 ? 'Chapters queued' : 'Nothing new queued',
-      addedCount > 0 ? `${addedCount} chapter(s) added to the offline queue.` : 'Selected chapters were already saved or queued.'
+      addedCount > 0
+        ? `${addedCount} chapter(s) added to the offline queue.`
+        : 'Selected chapters were already saved or queued.',
     );
   }
 

@@ -5,10 +5,7 @@ function escapeAttribute(value: string): string {
 }
 
 function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 export function injectBaseHref(html: string, pageUrl: string): string {
@@ -54,7 +51,10 @@ function stripPresentationMarkup(html: string): string {
   output = output.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
   output = output.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
   output = output.replace(/<link\b[^>]*rel=["']?stylesheet["']?[^>]*>/gi, '');
-  output = output.replace(/\s(on[a-z]+|class|id|style|bgcolor|align|valign|width|height|border|cellpadding|cellspacing|nowrap)=(".*?"|'.*?'|[^\s>]+)/gi, '');
+  output = output.replace(
+    /\s(on[a-z]+|class|id|style|bgcolor|align|valign|width|height|border|cellpadding|cellspacing|nowrap)=(".*?"|'.*?'|[^\s>]+)/gi,
+    '',
+  );
   output = output.replace(/&nbsp;/gi, ' ');
 
   return output;
@@ -86,7 +86,7 @@ function annotateHanVietText(text: string, dictionary: Record<string, string>): 
 function annotateHanVietTextWithPinyin(
   text: string,
   dictionary: Record<string, string>,
-  pinyinDictionary: Record<string, string>
+  pinyinDictionary: Record<string, string>,
 ): string {
   let output = '';
 
@@ -107,7 +107,7 @@ function annotateHanVietTextWithPinyin(
 function annotateChineseTextWithPinyin(
   text: string,
   dictionary: Record<string, string>,
-  pinyinDictionary: Record<string, string>
+  pinyinDictionary: Record<string, string>,
 ): string {
   let output = '';
 
@@ -125,7 +125,11 @@ function annotateChineseTextWithPinyin(
   return output;
 }
 
-export function stripPresentationHtml(html: string, fontSize: number, readerTheme: Theme['reader']): string {
+export function stripPresentationHtml(
+  html: string,
+  fontSize: number,
+  readerTheme: Theme['reader'],
+): string {
   const output = stripPresentationMarkup(html);
   return injectIntoHead(output, buildReaderStyle(fontSize, readerTheme));
 }
@@ -198,7 +202,7 @@ function buildTooltipEnhancements(readerTheme: Theme['reader']): string {
     '    if (tooltip.style.display === "block" && active === current) {',
     '      hideTooltip();',
     '    } else {',
-      '      showTooltip(current);',
+    '      showTooltip(current);',
     '    }',
     '    event.preventDefault();',
     '  });',
@@ -214,14 +218,17 @@ export function stripPresentationHtmlWithHvTooltips(
   fontSize: number,
   dictionary: Record<string, string>,
   pinyinDictionary: Record<string, string>,
-  readerTheme: Theme['reader']
+  readerTheme: Theme['reader'],
 ): string {
   const output = stripPresentationMarkup(html).replace(/>([^<>]+)</g, (_, text: string) => {
     if (!text.trim()) return `>${text}<`;
     return `>${annotateHanVietTextWithPinyin(text, dictionary, pinyinDictionary)}<`;
   });
 
-  const injected = [buildReaderStyle(fontSize, readerTheme), buildTooltipEnhancements(readerTheme)].join('');
+  const injected = [
+    buildReaderStyle(fontSize, readerTheme),
+    buildTooltipEnhancements(readerTheme),
+  ].join('');
 
   return injectIntoHead(output, injected);
 }
@@ -231,14 +238,17 @@ export function stripPresentationHtmlWithChineseTooltips(
   fontSize: number,
   dictionary: Record<string, string>,
   pinyinDictionary: Record<string, string>,
-  readerTheme: Theme['reader']
+  readerTheme: Theme['reader'],
 ): string {
   const output = stripPresentationMarkup(html).replace(/>([^<>]+)</g, (_, text: string) => {
     if (!text.trim()) return `>${text}<`;
     return `>${annotateChineseTextWithPinyin(text, dictionary, pinyinDictionary)}<`;
   });
 
-  const injected = [buildReaderStyle(fontSize, readerTheme), buildTooltipEnhancements(readerTheme)].join('');
+  const injected = [
+    buildReaderStyle(fontSize, readerTheme),
+    buildTooltipEnhancements(readerTheme),
+  ].join('');
 
   return injectIntoHead(output, injected);
 }

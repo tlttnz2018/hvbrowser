@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+
 import type { OfflineStoryRecord } from '../db/offline';
-import { Theme, absoluteFill, useTheme } from '../theme';
+import { absoluteFill, Theme, useTheme } from '../theme';
 
 interface OfflineStoryPickerProps {
   visible: boolean;
@@ -36,23 +37,29 @@ export default function OfflineStoryPicker({
       return;
     }
 
-    const hasSuggestedStory = suggestedStoryId ? stories.some((story) => story.id === suggestedStoryId) : false;
+    const hasSuggestedStory = suggestedStoryId
+      ? stories.some((story) => story.id === suggestedStoryId)
+      : false;
     setSelectedKey(hasSuggestedStory ? `story-${suggestedStoryId}` : 'new');
     setNewStoryName(defaultStoryName);
   }, [defaultStoryName, stories, suggestedStoryId, visible]);
 
   const choices = useMemo<StoryChoice[]>(() => {
-    const orderedStories = [...stories].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-    return [{ kind: 'new', key: 'new', label: newStoryName }, ...orderedStories.map((story) => ({
-      kind: 'existing' as const,
-      key: `story-${story.id}`,
-      story,
-    }))];
+    const orderedStories = [...stories].sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt),
+    );
+    return [
+      { kind: 'new', key: 'new', label: newStoryName },
+      ...orderedStories.map((story) => ({
+        kind: 'existing' as const,
+        key: `story-${story.id}`,
+        story,
+      })),
+    ];
   }, [newStoryName, stories]);
 
   const selectedChoice = choices.find((choice) => choice.key === selectedKey) ?? choices[0];
-  const canSubmit =
-    selectedChoice?.kind === 'existing' ? true : !!newStoryName.trim();
+  const canSubmit = selectedChoice?.kind === 'existing' ? true : !!newStoryName.trim();
 
   return (
     <Modal animationType="fade" transparent visible={visible} onRequestClose={onClose}>
@@ -73,7 +80,9 @@ export default function OfflineStoryPicker({
               <View style={[styles.radio, selectedKey === 'new' && styles.radioSelected]} />
               <View style={styles.storyText}>
                 <Text style={styles.storyName}>Create new story</Text>
-                <Text style={styles.storyMeta}>Edit the line below, then continue to create it.</Text>
+                <Text style={styles.storyMeta}>
+                  Edit the line below, then continue to create it.
+                </Text>
                 <TextInput
                   value={newStoryName}
                   onChangeText={(value) => {
@@ -101,7 +110,9 @@ export default function OfflineStoryPicker({
                     <View style={styles.storyText}>
                       <Text style={styles.storyName}>{choice.story.name}</Text>
                       <Text numberOfLines={1} style={styles.storyMeta}>
-                        {choice.story.indexPageUrl || choice.story.homePageUrl || 'No saved page URL yet'}
+                        {choice.story.indexPageUrl ||
+                          choice.story.homePageUrl ||
+                          'No saved page URL yet'}
                       </Text>
                     </View>
                   </Pressable>

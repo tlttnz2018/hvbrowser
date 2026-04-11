@@ -45,12 +45,14 @@ export const useWebPageStore = create<WebPageState>()((set, get) => ({
 
   increaseFont: () => {
     const { fontSize } = get();
-    if (fontSize < 4) set({ fontSize: Math.min(4, Number((fontSize + FONT_SIZE_STEP).toFixed(2))) });
+    if (fontSize < 4)
+      set({ fontSize: Math.min(4, Number((fontSize + FONT_SIZE_STEP).toFixed(2))) });
   },
 
   decreaseFont: () => {
     const { fontSize } = get();
-    if (fontSize > 1) set({ fontSize: Math.max(1, Number((fontSize - FONT_SIZE_STEP).toFixed(2))) });
+    if (fontSize > 1)
+      set({ fontSize: Math.max(1, Number((fontSize - FONT_SIZE_STEP).toFixed(2))) });
   },
 
   resetFont: () => set({ fontSize: 1 }),

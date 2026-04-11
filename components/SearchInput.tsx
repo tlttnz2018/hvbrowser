@@ -1,5 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Keyboard, Pressable, StyleSheet, TextInput, Text, View, TouchableOpacity } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  Keyboard,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+
 import { Theme, useTheme } from '../theme';
 
 interface SearchInputProps {

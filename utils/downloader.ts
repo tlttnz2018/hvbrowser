@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+
 import { cleanupHtml } from './cleanup';
 
 // iconv-lite and encoding-japanese are only used on native (require Buffer + string_decoder)
@@ -7,14 +8,13 @@ let icovDecode: ((buf: Uint8Array, enc: string) => string) | null = null;
 let detectEncoding: ((buf: Uint8Array) => string) | null = null;
 
 if (Platform.OS !== 'web') {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { Buffer } = require('buffer');
   if (typeof global !== 'undefined' && !global.Buffer) {
     global.Buffer = Buffer;
   }
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+
   const iconv = require('iconv-lite');
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+
   const encodingJp = require('encoding-japanese');
   detectEncoding = (buf: Uint8Array) => encodingJp.detect(buf) as string;
   icovDecode = (buf: Uint8Array, enc: string) => iconv.decode(Buffer.from(buf), enc);
@@ -37,7 +37,11 @@ function utf8ArrayToStr(array: Uint8Array): string {
     } else if (byte1 <= 0xef) {
       codePt = ((byte1 & 0x0f) << 12) | ((array[i++] & 0x3f) << 6) | (array[i++] & 0x3f);
     } else if (typeof String.fromCodePoint !== 'undefined') {
-      codePt = ((byte1 & 0x07) << 18) | ((array[i++] & 0x3f) << 12) | ((array[i++] & 0x3f) << 6) | (array[i++] & 0x3f);
+      codePt =
+        ((byte1 & 0x07) << 18) |
+        ((array[i++] & 0x3f) << 12) |
+        ((array[i++] & 0x3f) << 6) |
+        (array[i++] & 0x3f);
     } else {
       codePt = 63;
       i += 3;
@@ -49,10 +53,14 @@ function utf8ArrayToStr(array: Uint8Array): string {
 
 function mapEncoding(detected: string): string {
   switch (detected) {
-    case 'SJIS': return 'shiftjis';
-    case 'EUCJP': return 'euc-jp';
-    case 'UNICODE': return 'utf-16le';
-    default: return 'gbk';
+    case 'SJIS':
+      return 'shiftjis';
+    case 'EUCJP':
+      return 'euc-jp';
+    case 'UNICODE':
+      return 'utf-16le';
+    default:
+      return 'gbk';
   }
 }
 
@@ -60,7 +68,8 @@ function mapEncoding(detected: string): string {
 function normalizeCharset(raw: string): string | null {
   const s = raw.toLowerCase().replace(/[-_\s]/g, '');
   if (s === 'utf8' || s === 'utf8mb4') return 'utf-8';
-  if (s === 'gbk' || s === 'gb2312' || s === 'gb18030' || s === 'csgb2312' || s === 'xgbk') return 'gbk';
+  if (s === 'gbk' || s === 'gb2312' || s === 'gb18030' || s === 'csgb2312' || s === 'xgbk')
+    return 'gbk';
   if (s === 'big5' || s === 'big5hkscs' || s === 'csbig5') return 'big5';
   if (s === 'shiftjis' || s === 'sjis' || s === 'csshiftjis' || s === 'xsjis') return 'shiftjis';
   if (s === 'eucjp' || s === 'xeucjp' || s === 'cseucpkdfmtjapanese') return 'euc-jp';
@@ -105,8 +114,13 @@ function resolveEncoding(byteArray: Uint8Array, contentType: string | null): str
 
   // --- Priority 3: encoding-japanese byte-pattern detection ---
   const detected = detectEncoding!(byteArray);
-  if (detected === 'UTF8' || detected === 'ASCII' || detected === 'UTF16' ||
-      detected === 'UTF16BE' || detected === 'UTF16LE') {
+  if (
+    detected === 'UTF8' ||
+    detected === 'ASCII' ||
+    detected === 'UTF16' ||
+    detected === 'UTF16BE' ||
+    detected === 'UTF16LE'
+  ) {
     return 'utf-8';
   }
   if (detected === 'SJIS') return 'shiftjis';
@@ -156,7 +170,7 @@ export async function downloadHtmlPage(url: string): Promise<string> {
 
 export async function convertHtmlPageToHV(
   htmlContent: string,
-  dictionary: Record<string, string>
+  dictionary: Record<string, string>,
 ): Promise<string> {
   const converts: string[] = [];
   for (let idx = 0; idx < htmlContent.length; idx++) {
@@ -184,7 +198,7 @@ export async function sleepRandomQueueRest() {
 
 export async function downloadOfflineChapterPayload(
   url: string,
-  dictionary: Record<string, string>
+  dictionary: Record<string, string>,
 ): Promise<{ originalHtml: string; convertedHvHtml: string; title: string }> {
   const originalHtml = await downloadHtmlPage(url);
   const cleanedHtml = (await cleanupHtml(originalHtml)) || originalHtml;

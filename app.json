@@ -25,10 +25,7 @@
         "backgroundColor": "#ffffff"
       }
     },
-    "platforms": [
-      "ios",
-      "android"
-    ],
+    "platforms": ["ios", "android"],
     "extra": {
       "eas": {
         "projectId": "28c31d20-8052-11e9-9fe9-41aa2efe3a53"
@@ -38,9 +35,7 @@
       }
     },
     "scheme": "hvbrowser",
-    "plugins": [
-      "expo-router"
-    ],
+    "plugins": ["expo-router"],
     "runtimeVersion": {
       "policy": "appVersion"
     },

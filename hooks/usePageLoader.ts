@@ -1,9 +1,10 @@
 import { useCallback } from 'react';
+
 import { getOfflineChapterById } from '../db/offline';
 import { useAppStore } from '../stores/useAppStore';
 import { useWebPageStore } from '../stores/useWebPageStore';
-import { convertHtmlPageToHV, downloadHtmlPage, extractHtmlTitle } from '../utils/downloader';
 import { cleanupHtml } from '../utils/cleanup';
+import { convertHtmlPageToHV, downloadHtmlPage, extractHtmlTitle } from '../utils/downloader';
 import { fixUrl } from '../utils/normalize-url';
 import { injectBaseHref } from '../utils/webview-html';
 
@@ -74,7 +75,7 @@ export function usePageLoader() {
       markBookmarkVisited,
       setCurrentContentSource,
       setUrlInputFocus,
-    ]
+    ],
   );
 
   const loadOfflineChapter = useCallback(
@@ -115,7 +116,7 @@ export function usePageLoader() {
       setLoading,
       setUrlInputFocus,
       setWebPageTitle,
-    ]
+    ],
   );
 
   return { loadPage, loadOfflineChapter };

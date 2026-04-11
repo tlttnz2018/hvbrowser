@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Generated, Kysely, Migrator, Migration, MigrationProvider, Selectable } from 'kysely';
-import { createExpoSqliteDatabase, ExpoSqliteDialect } from './expoSqliteDialect';
+import { Generated, Kysely, Migration, MigrationProvider, Migrator, Selectable } from 'kysely';
+
 import {
   getBookmarkFavicon,
   getBookmarkImage,
@@ -8,6 +8,7 @@ import {
   truncateBookmarkDescription,
   truncateBookmarkTitle,
 } from '../utils/bookmarks';
+import { createExpoSqliteDatabase, ExpoSqliteDialect } from './expoSqliteDialect';
 
 const DATABASE_NAME = 'hvbrowser.db';
 const BOOKMARK_STORAGE_KEY = 'hv-browser-storage';
@@ -154,7 +155,11 @@ function getTransferBookmarks(input: unknown): BookmarkTransferRecord[] {
     return input;
   }
 
-  if (input && typeof input === 'object' && Array.isArray((input as BookmarkTransferPayload).bookmarks)) {
+  if (
+    input &&
+    typeof input === 'object' &&
+    Array.isArray((input as BookmarkTransferPayload).bookmarks)
+  ) {
     return (input as BookmarkTransferPayload).bookmarks;
   }
 
@@ -200,7 +205,7 @@ async function migrateLegacyBookmarksFromAsyncStorage() {
     const payload = getBookmarkPayload(
       bookmark.url!,
       bookmark.title || bookmark.desc || bookmark.url!,
-      bookmark.desc || bookmark.title || bookmark.url!
+      bookmark.desc || bookmark.title || bookmark.url!,
     );
 
     return {
@@ -318,7 +323,7 @@ export async function importBookmarksFromJson(raw: string): Promise<number> {
     const payload = getBookmarkPayload(
       normalizedUrl,
       bookmark.title || bookmark.desc || normalizedUrl,
-      bookmark.description || bookmark.desc || ''
+      bookmark.description || bookmark.desc || '',
     );
 
     dedupedBookmarks.set(normalizedUrl, {
@@ -346,14 +351,18 @@ export async function importBookmarksFromJson(raw: string): Promise<number> {
         favicon: eb.ref('excluded.favicon'),
         created_at: eb.ref('excluded.created_at'),
         last_accessed_at: eb.ref('excluded.last_accessed_at'),
-      }))
+      })),
     )
     .execute();
 
   return values.length;
 }
 
-export async function saveBookmark(input: { title: string; url: string; description?: string | null }): Promise<void> {
+export async function saveBookmark(input: {
+  title: string;
+  url: string;
+  description?: string | null;
+}): Promise<void> {
   await ensureBookmarkDbReady();
 
   const now = new Date().toISOString();
@@ -373,7 +382,7 @@ export async function saveBookmark(input: { title: string; url: string; descript
         image: payload.image,
         favicon: payload.favicon,
         last_accessed_at: now,
-      })
+      }),
     )
     .execute();
 }

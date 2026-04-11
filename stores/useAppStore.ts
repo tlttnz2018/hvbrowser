@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+
 import {
   BookmarkRecord,
   exportBookmarksPayload,
@@ -11,16 +12,20 @@ import {
   touchBookmarkByUrl,
 } from '../db/bookmarks';
 import {
-  OfflineChapterRecord,
-  OfflineChapterStatus,
-  OfflineStoryRecord,
   ensureOfflineDbReady,
   getOfflineChapterByUrl,
   listOfflineChapters,
   listOfflineStories,
+  OfflineChapterRecord,
+  OfflineChapterStatus,
+  OfflineStoryRecord,
   saveOfflineChapter,
 } from '../db/offline';
-import { sanitizeBookmarkUrl, truncateBookmarkTitle, urlsMatchForBookmark } from '../utils/bookmarks';
+import {
+  sanitizeBookmarkUrl,
+  truncateBookmarkTitle,
+  urlsMatchForBookmark,
+} from '../utils/bookmarks';
 
 const OLD_LASTVIEW_KEY = 'HV_BROWSER_LASTVIEW_STORAGE_KEY';
 
@@ -158,7 +163,10 @@ function groupOfflineChapters(chapters: OfflineChapterRecord[]) {
         return leftOrder - rightOrder;
       }
 
-      return left.createdAt.localeCompare(right.createdAt) || left.chapterName.localeCompare(right.chapterName);
+      return (
+        left.createdAt.localeCompare(right.createdAt) ||
+        left.chapterName.localeCompare(right.chapterName)
+      );
     });
     accumulator[chapter.storyId] = next;
     return accumulator;
@@ -171,9 +179,11 @@ function flattenOfflineChapters(chaptersByStory: Record<number, OfflineChapterRe
 
 function upsertOfflineChapterInState(
   chaptersByStory: Record<number, OfflineChapterRecord[]>,
-  chapter: OfflineChapterRecord
+  chapter: OfflineChapterRecord,
 ) {
-  const nextEntries = flattenOfflineChapters(chaptersByStory).filter((entry) => entry.id !== chapter.id);
+  const nextEntries = flattenOfflineChapters(chaptersByStory).filter(
+    (entry) => entry.id !== chapter.id,
+  );
   nextEntries.push(chapter);
   return groupOfflineChapters(nextEntries);
 }
@@ -334,8 +344,12 @@ export const useAppStore = create<AppState>()(
       },
 
       refreshOfflineLibrary: async () => {
-        const [stories, chapters] = await Promise.all([listOfflineStories(), listOfflineChapters()]);
-        const activeDownload = chapters.find((chapter) => chapter.downloadStatus === 'downloading') ?? null;
+        const [stories, chapters] = await Promise.all([
+          listOfflineStories(),
+          listOfflineChapters(),
+        ]);
+        const activeDownload =
+          chapters.find((chapter) => chapter.downloadStatus === 'downloading') ?? null;
         const queuedIds = chapters
           .filter((chapter) => chapter.downloadStatus === 'queued')
           .sort((left, right) => {
@@ -424,7 +438,10 @@ export const useAppStore = create<AppState>()(
         });
 
         set((state) => ({
-          offlineChaptersByStory: upsertOfflineChapterInState(state.offlineChaptersByStory, chapter),
+          offlineChaptersByStory: upsertOfflineChapterInState(
+            state.offlineChaptersByStory,
+            chapter,
+          ),
           downloadQueue: state.downloadQueue.includes(chapter.id)
             ? state.downloadQueue
             : [...state.downloadQueue, chapter.id],
@@ -460,7 +477,10 @@ export const useAppStore = create<AppState>()(
       markQueueItemCompleted: (chapter) =>
         set((state) => ({
           activeDownloadId: null,
-          offlineChaptersByStory: upsertOfflineChapterInState(state.offlineChaptersByStory, chapter),
+          offlineChaptersByStory: upsertOfflineChapterInState(
+            state.offlineChaptersByStory,
+            chapter,
+          ),
         })),
 
       markQueueItemFailed: (id, error) =>
@@ -493,7 +513,8 @@ export const useAppStore = create<AppState>()(
       setCurrentContentSource: (currentContentSource, currentOfflineChapterId = null) =>
         set({
           currentContentSource,
-          currentOfflineChapterId: currentContentSource === 'offline' ? currentOfflineChapterId : null,
+          currentOfflineChapterId:
+            currentContentSource === 'offline' ? currentOfflineChapterId : null,
         }),
 
       openPageRolePicker: (pendingOfflineAction) =>
@@ -555,6 +576,6 @@ export const useAppStore = create<AppState>()(
           // migration failed silently
         }
       },
-    }
-  )
+    },
+  ),
 );
