@@ -6,7 +6,7 @@ import {
   MigrationProvider,
   Selectable,
   sql,
-} from './kysely';
+} from 'kysely';
 import { createExpoSqliteDatabase, ExpoSqliteDialect } from './expoSqliteDialect';
 
 const DATABASE_NAME = 'hvbrowser.db';

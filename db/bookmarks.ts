@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Generated, Kysely, Migrator, Migration, MigrationProvider, Selectable } from './kysely';
+import { Generated, Kysely, Migrator, Migration, MigrationProvider, Selectable } from 'kysely';
 import { createExpoSqliteDatabase, ExpoSqliteDialect } from './expoSqliteDialect';
 import {
   getBookmarkFavicon,
