@@ -222,7 +222,6 @@ export default function IndexScreen() {
       }
     },
     [
-      currentContentSource,
       currentUrl,
       fullSite,
       getOfflineChapterByUrlFromState,

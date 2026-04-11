@@ -51,19 +51,6 @@ function utf8ArrayToStr(array: Uint8Array): string {
   return result.join('');
 }
 
-function mapEncoding(detected: string): string {
-  switch (detected) {
-    case 'SJIS':
-      return 'shiftjis';
-    case 'EUCJP':
-      return 'euc-jp';
-    case 'UNICODE':
-      return 'utf-16le';
-    default:
-      return 'gbk';
-  }
-}
-
 // Normalize charset name to iconv-lite compatible names
 function normalizeCharset(raw: string): string | null {
   const s = raw.toLowerCase().replace(/[-_\s]/g, '');
@@ -132,6 +119,7 @@ function resolveEncoding(byteArray: Uint8Array, contentType: string | null): str
 }
 
 export async function downloadHtmlPage(url: string): Promise<string> {
+  // eslint-disable-next-line no-console
   console.log('Download from: ' + url);
 
   const response = await fetch(url);

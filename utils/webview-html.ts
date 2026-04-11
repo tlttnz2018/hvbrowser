@@ -68,21 +68,6 @@ function injectIntoHead(html: string, injected: string): string {
   return `<head>${injected}</head>${html}`;
 }
 
-function annotateHanVietText(text: string, dictionary: Record<string, string>): string {
-  let output = '';
-
-  for (const ch of text) {
-    const hvWord = dictionary[ch];
-    if (hvWord) {
-      output += `<span class="hv-word" data-original="${escapeAttribute(ch)}">${escapeHtml(hvWord)}</span> `;
-    } else {
-      output += escapeHtml(ch);
-    }
-  }
-
-  return output;
-}
-
 function annotateHanVietTextWithPinyin(
   text: string,
   dictionary: Record<string, string>,

@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import {
   Animated,
   FlatList,
@@ -69,16 +69,16 @@ function SwipeableBookmarkListItem({
   const DELETE_SWIPE_VELOCITY = -0.35;
   const MAX_SWIPE_OFFSET = 140;
 
-  const resetPosition = () => {
+  const resetPosition = useCallback(() => {
     Animated.spring(translateX, {
       toValue: 0,
       useNativeDriver: true,
       bounciness: 0,
       speed: 18,
     }).start();
-  };
+  }, [translateX]);
 
-  const removeWithAnimation = () => {
+  const removeWithAnimation = useCallback(() => {
     Animated.timing(translateX, {
       toValue: -MAX_SWIPE_OFFSET,
       duration: 120,
@@ -86,7 +86,7 @@ function SwipeableBookmarkListItem({
     }).start(({ finished }) => {
       if (finished) onRemoveBookmark(item.url);
     });
-  };
+  }, [MAX_SWIPE_OFFSET, item.url, onRemoveBookmark, translateX]);
 
   const panResponder = useMemo(
     () =>
@@ -117,8 +117,8 @@ function SwipeableBookmarkListItem({
       DELETE_SWIPE_VELOCITY,
       MAX_SWIPE_OFFSET,
       item.isBookmark,
-      item.url,
-      onRemoveBookmark,
+      removeWithAnimation,
+      resetPosition,
       translateX,
     ],
   );

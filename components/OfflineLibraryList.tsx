@@ -1,5 +1,5 @@
 import { FontAwesome6 } from '@expo/vector-icons';
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -58,8 +58,6 @@ type ChapterRow = {
   storyName: string;
 };
 
-type OfflineRow = StoryRow | ChapterRow;
-
 const FILTER_OPTIONS: Array<{ key: OfflineFilterKey; label: string }> = [
   { key: 'all', label: 'All statuses' },
   { key: 'downloading', label: 'Downloading' },
@@ -101,15 +99,15 @@ function SwipeToDeleteCard({
   const styles = createStyles(theme);
   const translateX = useRef(new Animated.Value(0)).current;
 
-  const resetPosition = () => {
+  const resetPosition = useCallback(() => {
     Animated.spring(translateX, {
       toValue: 0,
       useNativeDriver: true,
       bounciness: 0,
     }).start();
-  };
+  }, [translateX]);
 
-  const removeWithAnimation = () => {
+  const removeWithAnimation = useCallback(() => {
     Animated.timing(translateX, {
       toValue: -132,
       duration: 140,
@@ -121,7 +119,7 @@ function SwipeToDeleteCard({
         resetPosition();
       }
     });
-  };
+  }, [onDelete, resetPosition, translateX]);
 
   const panResponder = useMemo(
     () =>
@@ -144,7 +142,7 @@ function SwipeToDeleteCard({
         },
         onPanResponderTerminate: resetPosition,
       }),
-    [disabled, translateX],
+    [disabled, removeWithAnimation, resetPosition, translateX],
   );
 
   return (
