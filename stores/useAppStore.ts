@@ -18,7 +18,7 @@ import {
   listOfflineStories,
   saveOfflineChapter,
 } from '../db/offline';
-import { truncateBookmarkTitle } from '../utils/bookmarks';
+import { sanitizeBookmarkUrl, truncateBookmarkTitle, urlsMatchForBookmark } from '../utils/bookmarks';
 
 const OLD_LASTVIEW_KEY = 'HV_BROWSER_LASTVIEW_STORAGE_KEY';
 
@@ -43,6 +43,11 @@ export interface PendingOfflineAction {
   chapterCandidates: OfflineChapterCandidate[];
 }
 
+export interface PendingBookmarkDraft {
+  title: string;
+  url: string;
+}
+
 type ReaderContentSource = 'remote' | 'offline';
 
 interface AppState {
@@ -65,6 +70,8 @@ interface AppState {
   activeDownloadId: number | null;
   downloadQueueRunning: boolean;
   downloadQueueLastError: string | null;
+  bookmarkEditorVisible: boolean;
+  pendingBookmarkDraft: PendingBookmarkDraft | null;
   pageRolePickerVisible: boolean;
   chapterPickerVisible: boolean;
   pendingOfflineAction: PendingOfflineAction | null;
@@ -72,6 +79,7 @@ interface AppState {
   currentOfflineChapterId: number | null;
 
   isCurrentBookmarked: () => boolean;
+  getCurrentBookmarkFromState: () => Bookmark | null;
   hasWebPage: () => boolean;
   getOfflineChapterByIdFromState: (id: number) => OfflineChapterRecord | null;
   getOfflineChapterByUrlFromState: (url: string) => OfflineChapterRecord | null;
@@ -86,6 +94,9 @@ interface AppState {
   popHistory: () => string | undefined;
   initializeBookmarks: () => Promise<void>;
   initializeOfflineLibrary: () => Promise<void>;
+  openBookmarkEditor: () => void;
+  closeBookmarkEditor: () => void;
+  savePendingBookmark: (draft: PendingBookmarkDraft) => Promise<void>;
   refreshOfflineLibrary: () => Promise<void>;
   toggleBookmark: () => Promise<void>;
   removeBookmark: (url: string) => Promise<void>;
@@ -172,16 +183,22 @@ export const useAppStore = create<AppState>()(
       activeDownloadId: null,
       downloadQueueRunning: false,
       downloadQueueLastError: null,
+      bookmarkEditorVisible: false,
+      pendingBookmarkDraft: null,
       pageRolePickerVisible: false,
       chapterPickerVisible: false,
       pendingOfflineAction: null,
       currentContentSource: 'remote',
       currentOfflineChapterId: null,
 
+      getCurrentBookmarkFromState: () => {
+        const { currentUrl, bookmarks } = get();
+        if (!currentUrl) return null;
+        return bookmarks.find((bookmark) => urlsMatchForBookmark(bookmark.url, currentUrl)) ?? null;
+      },
+
       isCurrentBookmarked: () => {
-        const { currentUrl, webPageTitle, bookmarks } = get();
-        if (!currentUrl || !webPageTitle) return false;
-        return bookmarks.findIndex((bookmark) => bookmark.url === currentUrl) !== -1;
+        return !!get().getCurrentBookmarkFromState();
       },
 
       hasWebPage: () => {
@@ -235,6 +252,49 @@ export const useAppStore = create<AppState>()(
         set({ offlineLibraryHydrated: true });
       },
 
+      openBookmarkEditor: () => {
+        const { currentUrl, webPageTitle, getCurrentBookmarkFromState } = get();
+        if (!currentUrl || !webPageTitle) return;
+
+        const existingBookmark = getCurrentBookmarkFromState();
+        const sanitizedUrl = sanitizeBookmarkUrl(existingBookmark?.url || currentUrl);
+        const fallbackTitle = truncateBookmarkTitle(webPageTitle) || sanitizedUrl || currentUrl;
+
+        set({
+          bookmarkEditorVisible: true,
+          pendingBookmarkDraft: {
+            title: existingBookmark?.title || fallbackTitle,
+            url: sanitizedUrl || currentUrl,
+          },
+        });
+      },
+
+      closeBookmarkEditor: () =>
+        set({
+          bookmarkEditorVisible: false,
+          pendingBookmarkDraft: null,
+        }),
+
+      savePendingBookmark: async (draft) => {
+        const nextDraft = {
+          title: truncateBookmarkTitle(draft.title),
+          url: sanitizeBookmarkUrl(draft.url),
+        };
+
+        if (!nextDraft.title || !nextDraft.url) {
+          return;
+        }
+
+        await saveBookmark(nextDraft);
+
+        const nextBookmarks = await listBookmarks();
+        set({
+          bookmarks: nextBookmarks.map(toStoreBookmark),
+          bookmarkEditorVisible: false,
+          pendingBookmarkDraft: null,
+        });
+      },
+
       refreshOfflineLibrary: async () => {
         const [stories, chapters] = await Promise.all([listOfflineStories(), listOfflineChapters()]);
         const activeDownload = chapters.find((chapter) => chapter.downloadStatus === 'downloading') ?? null;
@@ -256,17 +316,17 @@ export const useAppStore = create<AppState>()(
       },
 
       toggleBookmark: async () => {
-        const { currentUrl, webPageTitle, isCurrentBookmarked } = get();
+        const { currentUrl, webPageTitle, getCurrentBookmarkFromState, openBookmarkEditor } = get();
         if (!currentUrl || !webPageTitle) return;
 
-        if (isCurrentBookmarked()) {
-          await removeBookmarkByUrl(currentUrl);
-        } else {
-          await saveBookmark({
-            url: currentUrl,
-            title: truncateBookmarkTitle(webPageTitle),
-          });
+        const currentBookmark = getCurrentBookmarkFromState();
+
+        if (!currentBookmark) {
+          openBookmarkEditor();
+          return;
         }
+
+        await removeBookmarkByUrl(currentBookmark.url);
 
         const nextBookmarks = await listBookmarks();
         set({ bookmarks: nextBookmarks.map(toStoreBookmark) });

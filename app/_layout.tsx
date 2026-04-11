@@ -16,6 +16,7 @@ import BookmarkToggleButton from '../components/buttons/BookmarkToggleButton';
 import HVToggleButton from '../components/buttons/HVToggleButton';
 import LibraryToggleButton from '../components/buttons/LibraryToggleButton';
 import LibraryView from '../components/LibraryView';
+import BookmarkEditorModal from '../components/BookmarkEditorModal';
 import OfflineChapterPicker from '../components/OfflineChapterPicker';
 import OfflinePageRolePicker from '../components/OfflinePageRolePicker';
 import WebTextToolbar from '../components/toolbars/WebTextToolbar';
@@ -45,6 +46,10 @@ export default function RootLayout() {
   const setDictionary = useAppStore((s) => s.setDictionary);
   const setPinyinDictionary = useAppStore((s) => s.setPinyinDictionary);
   const loading = useAppStore((s) => s.loading);
+  const bookmarkEditorVisible = useAppStore((s) => s.bookmarkEditorVisible);
+  const pendingBookmarkDraft = useAppStore((s) => s.pendingBookmarkDraft);
+  const closeBookmarkEditor = useAppStore((s) => s.closeBookmarkEditor);
+  const savePendingBookmark = useAppStore((s) => s.savePendingBookmark);
   const pageRolePickerVisible = useAppStore((s) => s.pageRolePickerVisible);
   const chapterPickerVisible = useAppStore((s) => s.chapterPickerVisible);
   const pendingOfflineAction = useAppStore((s) => s.pendingOfflineAction);
@@ -152,6 +157,12 @@ export default function RootLayout() {
         >
           <LibraryView onDismiss={() => setLibraryDrawerOpen(false)} />
         </Animated.View>
+        <BookmarkEditorModal
+          visible={bookmarkEditorVisible}
+          draft={pendingBookmarkDraft}
+          onClose={closeBookmarkEditor}
+          onSubmit={savePendingBookmark}
+        />
         <OfflinePageRolePicker
           visible={pageRolePickerVisible}
           pageTitle={pendingOfflineAction?.pageTitle ?? 'Current page'}

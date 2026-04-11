@@ -1,7 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Generated, Kysely, Migrator, Migration, MigrationProvider, Selectable } from 'kysely';
 import { createExpoSqliteDatabase, ExpoSqliteDialect } from './expoSqliteDialect';
-import { getBookmarkFavicon, getBookmarkImage, truncateBookmarkTitle } from '../utils/bookmarks';
+import {
+  getBookmarkFavicon,
+  getBookmarkImage,
+  sanitizeBookmarkUrl,
+  truncateBookmarkTitle,
+} from '../utils/bookmarks';
 
 const DATABASE_NAME = 'hvbrowser.db';
 const BOOKMARK_STORAGE_KEY = 'hv-browser-storage';
@@ -10,6 +15,7 @@ const OLD_BOOKMARK_KEY = 'HV_BROWSER_BOOKMARK_STORAGE_KEY';
 interface BookmarkTable {
   id: Generated<number>;
   title: string;
+  description: string;
   url: string;
   image: string | null;
   favicon: string | null;
@@ -40,6 +46,7 @@ interface PersistedStoreState {
 export interface BookmarkRecord {
   id: number;
   title: string;
+  description: string;
   url: string;
   image: string | null;
   favicon: string | null;
@@ -63,6 +70,14 @@ const migrations: Record<string, Migration> = {
         .execute();
     },
   },
+  '002_add_bookmark_description': {
+    async up(db) {
+      await db.schema
+        .alterTable('bookmarks')
+        .addColumn('description', 'text', (col) => col.notNull().defaultTo(''))
+        .execute();
+    },
+  },
 };
 
 const migrationProvider: MigrationProvider = {
@@ -83,6 +98,7 @@ function mapBookmarkRow(row: BookmarkRow): BookmarkRecord {
   return {
     id: row.id,
     title: row.title,
+    description: row.description,
     url: row.url,
     image: row.image,
     favicon: row.favicon,
@@ -95,15 +111,17 @@ function normalizeLegacyBookmarks(input: LegacyBookmark[] | undefined): LegacyBo
   return Array.isArray(input) ? input.filter((bookmark) => !!bookmark?.url) : [];
 }
 
-function getBookmarkPayload(url: string, rawTitle: string) {
-  const title = truncateBookmarkTitle(rawTitle) || url;
-  const image = getBookmarkImage(url);
+function getBookmarkPayload(url: string, rawTitle: string, rawDescription?: string | null) {
+  const normalizedUrl = sanitizeBookmarkUrl(url) || url.trim();
+  const title = truncateBookmarkTitle(rawTitle) || normalizedUrl;
+  const image = getBookmarkImage(normalizedUrl);
 
   return {
     title,
-    url,
+    description: rawDescription ?? '',
+    url: normalizedUrl,
     image,
-    favicon: image ? null : getBookmarkFavicon(url),
+    favicon: image ? null : getBookmarkFavicon(normalizedUrl),
   };
 }
 
@@ -143,7 +161,11 @@ async function migrateLegacyBookmarksFromAsyncStorage() {
 
   const now = new Date().toISOString();
   const bookmarkValues = [...pendingBookmarks.values()].map((bookmark) => {
-    const payload = getBookmarkPayload(bookmark.url!, bookmark.title || bookmark.desc || bookmark.url!);
+    const payload = getBookmarkPayload(
+      bookmark.url!,
+      bookmark.title || bookmark.desc || bookmark.url!,
+      bookmark.desc || bookmark.title || bookmark.url!
+    );
 
     return {
       ...payload,
@@ -217,11 +239,11 @@ export async function listBookmarks(): Promise<BookmarkRecord[]> {
   return rows.map(mapBookmarkRow);
 }
 
-export async function saveBookmark(input: { title: string; url: string }): Promise<void> {
+export async function saveBookmark(input: { title: string; url: string; description?: string | null }): Promise<void> {
   await ensureBookmarkDbReady();
 
   const now = new Date().toISOString();
-  const payload = getBookmarkPayload(input.url, input.title);
+  const payload = getBookmarkPayload(input.url, input.title, input.description);
 
   await bookmarkDb
     .insertInto('bookmarks')
@@ -233,6 +255,7 @@ export async function saveBookmark(input: { title: string; url: string }): Promi
     .onConflict((oc) =>
       oc.column('url').doUpdateSet({
         title: payload.title,
+        description: payload.description,
         image: payload.image,
         favicon: payload.favicon,
         last_accessed_at: now,
