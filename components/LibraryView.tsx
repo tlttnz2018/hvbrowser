@@ -475,14 +475,6 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
       </View>
         </>
       )}
-      {libraryTab === 'offline' && (
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Offline book</Text>
-          <Text style={styles.sectionCaption}>
-            Expand a story to see queued, downloading, downloaded, and failed chapters.
-          </Text>
-        </View>
-      )}
     </Pressable>
   );
 
