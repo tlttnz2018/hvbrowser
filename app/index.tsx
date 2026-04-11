@@ -1,7 +1,6 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
-import { WebView, WebViewNavigation } from 'react-native-webview';
-import type { ShouldStartLoadRequest } from 'react-native-webview/lib/WebViewTypes';
+import { WebView, WebViewMessageEvent, WebViewNavigation } from 'react-native-webview';
 import { useAppStore } from '../stores/useAppStore';
 import { useWebPageStore } from '../stores/useWebPageStore';
 import { usePageLoader } from '../hooks/usePageLoader';
@@ -38,42 +37,44 @@ export default function IndexScreen() {
     }
   }, [fontSize, fullSite]);
 
-  const initialScript = `(function() { document.body.style.fontSize = "${fontSize}em"; })();`;
+  const initialScript = `
+    (function() {
+      document.body.style.fontSize = "${fontSize}em";
+      if (window.__HVBROWSER_LINK_BRIDGE__) { return true; }
+      window.__HVBROWSER_LINK_BRIDGE__ = true;
+      document.addEventListener('click', function(event) {
+        var target = event.target;
+        var link = target && target.closest ? target.closest('a[href]') : null;
+        if (!link) { return; }
+        var href = link.href || link.getAttribute('href');
+        if (!href || href.indexOf('javascript:') === 0) { return; }
+        if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'link-press', url: href }));
+          event.preventDefault();
+        }
+      }, true);
+      return true;
+    })();
+  `;
 
-  const handleShouldStartLoadWithRequest = useCallback(
-    (request: ShouldStartLoadRequest) => {
-      const { url, isTopFrame, navigationType } = request;
+  const handleMessage = useCallback(
+    (event: WebViewMessageEvent) => {
+      try {
+        const payload = JSON.parse(event.nativeEvent.data) as { type?: string; url?: string };
+        if (payload.type !== 'link-press' || !payload.url || payload.url === currentUrl) {
+          return;
+        }
 
-      if (
-        !url ||
-        url === currentUrl ||
-        url.indexOf('about') !== -1 ||
-        url.match(/data:/) ||
-        url.indexOf('postMessage') !== -1
-      ) {
-        return true;
+        const offlineChapter = getOfflineChapterByUrlFromState(payload.url);
+
+        if (offlineChapter) {
+          loadOfflineChapter(offlineChapter.id);
+        } else {
+          loadPage(payload.url);
+        }
+      } catch {
+        // Ignore non-JSON messages from the page.
       }
-
-      if (currentContentSource !== 'offline') {
-        return true;
-      }
-
-      if (!isTopFrame) {
-        return true;
-      }
-
-      if (navigationType && navigationType !== 'click') {
-        return true;
-      }
-
-      const offlineChapter = getOfflineChapterByUrlFromState(url);
-      if (offlineChapter) {
-        loadOfflineChapter(offlineChapter.id);
-      } else {
-        loadPage(url);
-      }
-
-      return false;
     },
     [currentContentSource, currentUrl, getOfflineChapterByUrlFromState, loadOfflineChapter, loadPage]
   );
@@ -133,7 +134,7 @@ export default function IndexScreen() {
           style={styles.webView}
           mixedContentMode="compatibility"
           injectedJavaScript={initialScript}
-          onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
+          onMessage={handleMessage}
           onNavigationStateChange={handleNavigationStateChange}
         />
       )}
