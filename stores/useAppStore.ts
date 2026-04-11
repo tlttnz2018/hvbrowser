@@ -44,6 +44,7 @@ export interface PendingOfflineAction {
 }
 
 export interface PendingBookmarkDraft {
+  originalUrl?: string;
   title: string;
   url: string;
 }
@@ -95,6 +96,7 @@ interface AppState {
   initializeBookmarks: () => Promise<void>;
   initializeOfflineLibrary: () => Promise<void>;
   openBookmarkEditor: () => void;
+  openBookmarkEditorForBookmark: (bookmark: { title: string; url: string }) => void;
   closeBookmarkEditor: () => void;
   savePendingBookmark: (draft: PendingBookmarkDraft) => Promise<void>;
   refreshOfflineLibrary: () => Promise<void>;
@@ -263,8 +265,22 @@ export const useAppStore = create<AppState>()(
         set({
           bookmarkEditorVisible: true,
           pendingBookmarkDraft: {
+            originalUrl: existingBookmark?.url,
             title: existingBookmark?.title || fallbackTitle,
             url: sanitizedUrl || currentUrl,
+          },
+        });
+      },
+
+      openBookmarkEditorForBookmark: (bookmark) => {
+        const sanitizedUrl = sanitizeBookmarkUrl(bookmark.url);
+
+        set({
+          bookmarkEditorVisible: true,
+          pendingBookmarkDraft: {
+            originalUrl: bookmark.url,
+            title: truncateBookmarkTitle(bookmark.title) || sanitizedUrl || bookmark.url,
+            url: sanitizedUrl || bookmark.url,
           },
         });
       },
@@ -283,6 +299,11 @@ export const useAppStore = create<AppState>()(
 
         if (!nextDraft.title || !nextDraft.url) {
           return;
+        }
+
+        const originalUrl = sanitizeBookmarkUrl(draft.originalUrl || '');
+        if (originalUrl && originalUrl !== nextDraft.url) {
+          await removeBookmarkByUrl(originalUrl);
         }
 
         await saveBookmark(nextDraft);

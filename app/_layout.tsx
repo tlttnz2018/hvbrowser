@@ -6,7 +6,7 @@ if (typeof global !== 'undefined') {
 }
 
 import React, { useEffect, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { Alert, Animated, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { Slot } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -50,6 +50,7 @@ export default function RootLayout() {
   const pendingBookmarkDraft = useAppStore((s) => s.pendingBookmarkDraft);
   const closeBookmarkEditor = useAppStore((s) => s.closeBookmarkEditor);
   const savePendingBookmark = useAppStore((s) => s.savePendingBookmark);
+  const removeBookmark = useAppStore((s) => s.removeBookmark);
   const pageRolePickerVisible = useAppStore((s) => s.pageRolePickerVisible);
   const chapterPickerVisible = useAppStore((s) => s.chapterPickerVisible);
   const pendingOfflineAction = useAppStore((s) => s.pendingOfflineAction);
@@ -162,6 +163,26 @@ export default function RootLayout() {
           draft={pendingBookmarkDraft}
           onClose={closeBookmarkEditor}
           onSubmit={savePendingBookmark}
+          onDelete={(draft) => {
+            const url = draft.originalUrl || draft.url;
+            Alert.alert(
+              'Remove bookmark?',
+              draft.title || url,
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Remove',
+                  style: 'destructive',
+                  onPress: () => {
+                    closeBookmarkEditor();
+                    removeBookmark(url).catch((error) => {
+                      console.error('Bookmark removal error:', error);
+                    });
+                  },
+                },
+              ]
+            );
+          }}
         />
         <OfflinePageRolePicker
           visible={pageRolePickerVisible}

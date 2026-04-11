@@ -1,6 +1,5 @@
-import React, { memo, useMemo, useRef } from 'react';
+import React, { useMemo, useRef } from 'react';
 import {
-  Alert,
   Animated,
   FlatList,
   Image,
@@ -11,7 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Theme, absoluteFill, useTheme } from '../theme';
+import { Theme, useTheme } from '../theme';
 
 export interface SiteItem {
   uri?: ImageSourcePropType;
@@ -27,6 +26,7 @@ interface BookmarkListProps {
   items?: SiteItem[];
   onPressImage: (url: string) => void;
   onRemoveBookmark: (url: string) => void;
+  onEditBookmark: (item: SiteItem) => void;
   bookmarkStore: SiteItem[];
   lastViewUrl: string;
   headerComponent?: React.ReactElement;
@@ -47,7 +47,7 @@ interface SwipeableBookmarkListItemProps {
   index: number;
   onPressImage: (url: string) => void;
   onRemoveBookmark: (url: string) => void;
-  onLongPressRemove: (item: SiteItem) => void;
+  onLongPressEdit: (item: SiteItem) => void;
 }
 
 function SwipeableBookmarkListItem({
@@ -55,7 +55,7 @@ function SwipeableBookmarkListItem({
   index,
   onPressImage,
   onRemoveBookmark,
-  onLongPressRemove,
+  onLongPressEdit,
 }: SwipeableBookmarkListItemProps) {
   const theme = useTheme();
   const styles = createStyles(theme);
@@ -98,7 +98,7 @@ function SwipeableBookmarkListItem({
         },
         onPanResponderTerminate: resetPosition,
       }),
-    [item.isBookmark, onRemoveBookmark, item.url, translateX]
+    [item.isBookmark, item.url, onRemoveBookmark, translateX]
   );
 
   return (
@@ -113,7 +113,7 @@ function SwipeableBookmarkListItem({
         <TouchableOpacity
           activeOpacity={0.75}
           onPress={() => onPressImage(item.url)}
-          onLongPress={() => onLongPressRemove(item)}
+          onLongPress={() => item.isBookmark && onLongPressEdit(item)}
           style={styles.listItem}
         >
           <View style={styles.listThumb}>
@@ -139,6 +139,7 @@ function BookmarkList({
   items,
   onPressImage,
   onRemoveBookmark,
+  onEditBookmark,
   bookmarkStore,
   lastViewUrl,
   headerComponent,
@@ -159,26 +160,13 @@ function BookmarkList({
 
   const getItemKey = (item: SiteItem, index: number) => `${item.url || item.desc || 'site'}-${index}`;
 
-  const confirmRemoveBookmark = (item: SiteItem) => {
-    if (!item.isBookmark) return;
-
-    Alert.alert(
-      'Remove bookmark?',
-      item.desc || item.url,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Remove', style: 'destructive', onPress: () => onRemoveBookmark(item.url) },
-      ]
-    );
-  };
-
   const renderListItem = ({ item, index }: { item: SiteItem; index: number }) => (
     <SwipeableBookmarkListItem
       item={item}
       index={index}
       onPressImage={onPressImage}
       onRemoveBookmark={onRemoveBookmark}
-      onLongPressRemove={confirmRemoveBookmark}
+      onLongPressEdit={onEditBookmark}
     />
   );
 
@@ -200,7 +188,7 @@ const createStyles = (theme: Theme) =>
     paddingBottom: 18,
   },
   listDeleteBackground: {
-    ...absoluteFill,
+    ...StyleSheet.absoluteFillObject,
     borderRadius: theme.radius.xl,
     backgroundColor: theme.colors.surfaceDanger,
     alignItems: 'flex-end',
@@ -267,4 +255,4 @@ const createStyles = (theme: Theme) =>
   },
 });
 
-export default memo(BookmarkList);
+export default BookmarkList;

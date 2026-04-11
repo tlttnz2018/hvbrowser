@@ -154,6 +154,7 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
   const bookmarks = useAppStore((s) => s.bookmarks);
   const lastViewUrl = useAppStore((s) => s.lastViewUrl);
   const removeBookmark = useAppStore((s) => s.removeBookmark);
+  const openBookmarkEditorForBookmark = useAppStore((s) => s.openBookmarkEditorForBookmark);
   const refreshOfflineLibrary = useAppStore((s) => s.refreshOfflineLibrary);
   const offlineStories = useAppStore((s) => s.offlineStories);
   const offlineChaptersByStory = useAppStore((s) => s.offlineChaptersByStory);
@@ -384,7 +385,7 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Sources</Text>
         <Text style={styles.sectionCaption}>
-          Tap to open. Long-press or swipe bookmarked items to remove them.
+          Tap to open. Long-press a bookmark to edit it, or swipe left to remove it.
         </Text>
       </View>
         </>
@@ -405,11 +406,15 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
       {libraryTab === 'library' ? (
         <BookmarkList
           items={filteredItems}
-          onPressImage={(url) => {
+          onPressImage={(url: string) => {
             onDismiss?.();
             loadPage(url);
           }}
           onRemoveBookmark={removeBookmark}
+          onEditBookmark={(item: SiteItem) => {
+            if (!item.isBookmark) return;
+            openBookmarkEditorForBookmark({ title: item.desc, url: item.url });
+          }}
           bookmarkStore={bookmarks}
           lastViewUrl={lastViewUrl}
           headerComponent={header}
