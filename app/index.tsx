@@ -11,6 +11,71 @@ import {
   stripPresentationHtmlWithHvTooltips,
 } from '../utils/webview-html';
 
+function buildFullSiteFontScript(fontSize: number): string {
+  const fullSiteScale = 1 + (fontSize - 1) * 0.5;
+
+  return `
+    (function() {
+      var scale = ${JSON.stringify(fullSiteScale)};
+      var root = document.body || document.documentElement;
+      if (!root) {
+        return true;
+      }
+
+      var nodes = [root].concat(Array.prototype.slice.call(root.querySelectorAll('*')));
+      for (var index = 0; index < nodes.length; index += 1) {
+        var node = nodes[index];
+        if (!node || !node.style) {
+          continue;
+        }
+
+        var computed = window.getComputedStyle(node);
+        if (!computed) {
+          continue;
+        }
+
+        var baseFontSize = node.getAttribute('data-hvbrowser-base-font-size');
+        if (!baseFontSize) {
+          var currentFontSize = parseFloat(computed.fontSize || '');
+          if (Number.isFinite(currentFontSize) && currentFontSize > 0) {
+            baseFontSize = String(currentFontSize);
+            node.setAttribute('data-hvbrowser-base-font-size', baseFontSize);
+          }
+        }
+
+        var fontSizePx = parseFloat(baseFontSize || '');
+        if (Number.isFinite(fontSizePx) && fontSizePx > 0) {
+          node.style.setProperty('font-size', (fontSizePx * scale) + 'px', 'important');
+        }
+
+        var computedLineHeight = computed.lineHeight || '';
+        if (computedLineHeight.slice(-2) !== 'px') {
+          if (scale === 1) {
+            node.style.removeProperty('line-height');
+          }
+          continue;
+        }
+
+        var baseLineHeight = node.getAttribute('data-hvbrowser-base-line-height');
+        if (!baseLineHeight) {
+          var currentLineHeight = parseFloat(computedLineHeight);
+          if (Number.isFinite(currentLineHeight) && currentLineHeight > 0) {
+            baseLineHeight = String(currentLineHeight);
+            node.setAttribute('data-hvbrowser-base-line-height', baseLineHeight);
+          }
+        }
+
+        var lineHeightPx = parseFloat(baseLineHeight || '');
+        if (Number.isFinite(lineHeightPx) && lineHeightPx > 0) {
+          node.style.setProperty('line-height', (lineHeightPx * scale) + 'px', 'important');
+        }
+      }
+
+      return true;
+    })();
+  `;
+}
+
 export default function IndexScreen() {
   const webViewRef = useRef<WebView>(null);
   const readerScrollPositionsRef = useRef<Record<string, number>>({});
@@ -46,14 +111,14 @@ export default function IndexScreen() {
 
   useEffect(() => {
     if (webViewRef.current && fullSite) {
-      const script = `document.body.style.fontSize = "${fontSize}em"; true;`;
+      const script = buildFullSiteFontScript(fontSize);
       webViewRef.current.injectJavaScript(script);
     }
   }, [fontSize, fullSite]);
 
   const initialScript = `
     (function() {
-      document.body.style.fontSize = "${fontSize}em";
+      ${buildFullSiteFontScript(fontSize)}
       if (window.__HVBROWSER_LINK_BRIDGE__) { return true; }
       window.__HVBROWSER_LINK_BRIDGE__ = true;
       var postScrollPosition = function() {
