@@ -13,6 +13,7 @@ import {
 
 export default function IndexScreen() {
   const webViewRef = useRef<WebView>(null);
+  const readerScrollPositionsRef = useRef<Record<string, number>>({});
   const { loadPage, loadOfflineChapter } = usePageLoader();
   const theme = useTheme();
   const styles = createStyles(theme);
@@ -43,6 +44,35 @@ export default function IndexScreen() {
       document.body.style.fontSize = "${fontSize}em";
       if (window.__HVBROWSER_LINK_BRIDGE__) { return true; }
       window.__HVBROWSER_LINK_BRIDGE__ = true;
+      var postScrollPosition = function() {
+        if (!window.ReactNativeWebView || !window.ReactNativeWebView.postMessage) {
+          return;
+        }
+        var doc = document.documentElement;
+        var body = document.body;
+        var scrollTop = window.scrollY || (doc && doc.scrollTop) || (body && body.scrollTop) || 0;
+        var scrollHeight = Math.max(
+          doc ? doc.scrollHeight : 0,
+          body ? body.scrollHeight : 0,
+          doc ? doc.offsetHeight : 0,
+          body ? body.offsetHeight : 0
+        );
+        var maxScroll = Math.max(0, scrollHeight - window.innerHeight);
+        var ratio = maxScroll > 0 ? scrollTop / maxScroll : 0;
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'scroll-position', ratio: ratio }));
+      };
+      var scheduledScrollPost = null;
+      var scheduleScrollPositionPost = function() {
+        if (scheduledScrollPost !== null) {
+          window.clearTimeout(scheduledScrollPost);
+        }
+        scheduledScrollPost = window.setTimeout(function() {
+          scheduledScrollPost = null;
+          postScrollPosition();
+        }, 80);
+      };
+      window.addEventListener('scroll', scheduleScrollPositionPost, { passive: true });
+      window.addEventListener('load', postScrollPosition);
       document.addEventListener('click', function() {
         if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'page-press' }));
@@ -66,9 +96,20 @@ export default function IndexScreen() {
   const handleMessage = useCallback(
     (event: WebViewMessageEvent) => {
       try {
-        const payload = JSON.parse(event.nativeEvent.data) as { type?: string; url?: string };
+        const payload = JSON.parse(event.nativeEvent.data) as {
+          type?: string;
+          url?: string;
+          ratio?: number;
+        };
         if (payload.type === 'page-press') {
           setMoreMenu(false);
+          return;
+        }
+
+        if (payload.type === 'scroll-position') {
+          if (!fullSite && currentUrl && typeof payload.ratio === 'number' && Number.isFinite(payload.ratio)) {
+            readerScrollPositionsRef.current[currentUrl] = Math.max(0, Math.min(1, payload.ratio));
+          }
           return;
         }
 
@@ -87,7 +128,7 @@ export default function IndexScreen() {
         // Ignore non-JSON messages from the page.
       }
     },
-    [currentContentSource, currentUrl, getOfflineChapterByUrlFromState, loadOfflineChapter, loadPage, setMoreMenu]
+    [currentContentSource, currentUrl, fullSite, getOfflineChapterByUrlFromState, loadOfflineChapter, loadPage, setMoreMenu]
   );
 
   const handleNavigationStateChange = useCallback(
@@ -124,6 +165,31 @@ export default function IndexScreen() {
       ? stripPresentationHtmlWithHvTooltips(htmlOrig, fontSize, dictionary, pinyinDictionary, theme.reader)
       : stripPresentationHtmlWithChineseTooltips(htmlOrig, fontSize, dictionary, pinyinDictionary, theme.reader);
   const baseUrl = currentUrl ? extractBaseUrl(currentUrl) : undefined;
+  const restoreReaderScrollPosition = useCallback(() => {
+    if (!webViewRef.current || fullSite || !currentUrl) {
+      return;
+    }
+
+    const scrollRatio = readerScrollPositionsRef.current[currentUrl];
+    if (scrollRatio == null || !Number.isFinite(scrollRatio)) {
+      return;
+    }
+
+    const restoreScript = `
+      (function() {
+        var ratio = ${JSON.stringify(scrollRatio)};
+        var maxScroll = Math.max(
+          0,
+          (document.documentElement ? document.documentElement.scrollHeight : 0) - window.innerHeight,
+          (document.body ? document.body.scrollHeight : 0) - window.innerHeight
+        );
+        window.scrollTo(0, Math.max(0, maxScroll * ratio));
+        return true;
+      })();
+    `;
+
+    webViewRef.current.injectJavaScript(restoreScript);
+  }, [currentUrl, fullSite]);
 
   return (
     <View style={styles.screen}>
@@ -146,6 +212,7 @@ export default function IndexScreen() {
           mixedContentMode="compatibility"
           injectedJavaScript={initialScript}
           onMessage={handleMessage}
+          onLoadEnd={restoreReaderScrollPosition}
           onNavigationStateChange={handleNavigationStateChange}
         />
       )}
