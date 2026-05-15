@@ -4,6 +4,14 @@
 
 - This repository is a single-app Expo / React Native project for browsing Chinese novel sites, converting page text to Han-Viet, and saving stories/chapters for offline reading.
 - Future agents should treat it as a WebView-first reader app with a custom offline pipeline, not as a generic CRUD/mobile app.
+- Architecture decisions and recent EPUB/offline-reader decisions now live in [`docs/ADR.md`](/Users/saigon/dev/hvbrowser/docs/ADR.md). Use this file when a task touches navigation, persistence, offline reading, or reader-shell structure.
+
+## Recent Memory
+
+- EPUB imports run through persisted background jobs in `epub_import_jobs`; they should resume through the app-managed queue instead of blocking the reader.
+- EPUB chapters are stored as normal offline chapters with synthetic `epub://story/<id>/chapter/<n>` URLs and lazy `convertedHvHtml` generation.
+- Any `epub://...` open path, including bookmarks and history restores, must resolve through offline chapter lookup before remote loading.
+- Library tabs now share the same mobile behavior: the hero/info area scrolls away, while the tab row and tab-specific search/filter controls stay sticky.
 
 ## Current Stack
 
@@ -15,6 +23,8 @@
 - TypeScript in `strict` mode
 
 ## High-Level Architecture
+
+For stable architectural decisions, prefer the ADR file over growing this section indefinitely.
 
 ### App Shell
 

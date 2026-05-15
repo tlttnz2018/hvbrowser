@@ -354,7 +354,7 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
     }
   };
 
-  const header = (
+  const heroHeader = (
     <Pressable style={styles.headerWrap} onPress={() => setOpenMenu(null)}>
       <View style={styles.topRow}>
         <Text style={styles.eyebrow}>Reader Library</Text>
@@ -377,219 +377,234 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
           </View>
         </View>
       </View>
+    </Pressable>
+  );
 
-      <View style={styles.tabRow}>
-        <SegmentedControl
-          accessibilityLabel="Library tabs"
-          onChange={(key) => setLibraryTab(key as LibraryTabKey)}
-          options={[
-            { key: 'library', label: 'Sources' },
-            { key: 'offline', label: 'Offline book' },
-          ]}
-          selectedKey={libraryTab}
+  const sharedStickyTabs = (
+    <View style={styles.tabRow}>
+      <SegmentedControl
+        accessibilityLabel="Library tabs"
+        onChange={(key) => setLibraryTab(key as LibraryTabKey)}
+        options={[
+          { key: 'library', label: 'Sources' },
+          { key: 'offline', label: 'Offline book' },
+        ]}
+        selectedKey={libraryTab}
+      />
+    </View>
+  );
+
+  const sourcesToolbar = (
+    <Pressable style={styles.toolbarRow} onPress={() => setOpenMenu(null)}>
+      <View style={styles.searchWrap}>
+        <TextInput
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search title, URL, or source"
+          placeholderTextColor={theme.colors.inputPlaceholder}
+          style={styles.searchInput}
         />
+        {!!searchQuery && (
+          <Pressable
+            accessibilityLabel="Clear search"
+            onPress={() => setSearchQuery('')}
+            style={styles.clearButton}
+          >
+            <FontAwesome6 name="xmark" size={12} color={theme.colors.textAccent} />
+          </Pressable>
+        )}
       </View>
-
-      {libraryTab === 'library' && (
-        <>
-          <View style={styles.toolbarRow}>
-            <View style={styles.searchWrap}>
-              <TextInput
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                placeholder="Search title, URL, or source"
-                placeholderTextColor={theme.colors.inputPlaceholder}
-                style={styles.searchInput}
-              />
-              {!!searchQuery && (
-                <Pressable
-                  accessibilityLabel="Clear search"
-                  onPress={() => setSearchQuery('')}
-                  style={styles.clearButton}
-                >
-                  <FontAwesome6 name="xmark" size={12} color={theme.colors.textAccent} />
-                </Pressable>
-              )}
-            </View>
-            <View style={styles.menuGroup}>
-              <View style={styles.menuAnchor}>
-                <View ref={filterButtonRef} collapsable={false}>
-                  <MenuButton
-                    icon={
-                      <FontAwesome6
-                        name={filterKey === 'all' ? 'filter' : 'filter-circle-xmark'}
-                        size={15}
-                        color={
-                          openMenu === 'filter'
-                            ? theme.colors.borderAccent
-                            : theme.colors.textAccent
-                        }
-                      />
-                    }
-                    accessibilityLabel={`Filter: ${FILTER_OPTIONS.find((option) => option.key === filterKey)?.label || 'All'}`}
-                    open={openMenu === 'filter'}
-                    onPress={() =>
-                      openMenu === 'filter'
-                        ? closeMenu()
-                        : openAnchoredMenu('filter', filterButtonRef)
-                    }
-                  />
-                </View>
-                {openMenu === 'filter' && (
-                  <PopupMenu
-                    title="Filter"
-                    options={FILTER_OPTIONS}
-                    selectedKey={filterKey}
-                    anchor={menuAnchor}
-                    onClose={closeMenu}
-                    onSelect={(key) => {
-                      if (key !== filterKey) setFilterKey(key);
-                      closeMenu();
-                    }}
-                  />
-                )}
-              </View>
-              <View style={styles.menuAnchor}>
-                <View ref={sortButtonRef} collapsable={false}>
-                  <MenuButton
-                    icon={
-                      <FontAwesome6
-                        name={
-                          sortDirection === 'asc' ? 'arrow-up-short-wide' : 'arrow-down-short-wide'
-                        }
-                        size={15}
-                        color={
-                          openMenu === 'sort' ? theme.colors.borderAccent : theme.colors.textAccent
-                        }
-                      />
-                    }
-                    accessibilityLabel={`Sort: ${SORT_OPTIONS.find((option) => option.key === sortKey)?.label || 'Recent'} ${sortDirection === 'asc' ? 'ascending' : 'descending'}`}
-                    open={openMenu === 'sort'}
-                    onPress={() =>
-                      openMenu === 'sort' ? closeMenu() : openAnchoredMenu('sort', sortButtonRef)
-                    }
-                  />
-                </View>
-                {openMenu === 'sort' && (
-                  <PopupMenu
-                    title="Sort"
-                    options={SORT_OPTIONS}
-                    selectedKey={sortKey}
-                    anchor={menuAnchor}
-                    onClose={closeMenu}
-                    renderAccessory={(key, selected) =>
-                      selected ? (
-                        <FontAwesome6
-                          name={sortDirection === 'asc' ? 'arrow-up' : 'arrow-down'}
-                          size={11}
-                          color={theme.colors.borderAccent}
-                        />
-                      ) : null
-                    }
-                    onSelect={(key) => {
-                      if (key === sortKey) {
-                        setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'));
-                      } else {
-                        setSortKey(key);
-                        setSortDirection('asc');
-                      }
-                      closeMenu();
-                    }}
-                  />
-                )}
-              </View>
-            </View>
+      <View style={styles.menuGroup}>
+        <View style={styles.menuAnchor}>
+          <View ref={filterButtonRef} collapsable={false}>
+            <MenuButton
+              icon={
+                <FontAwesome6
+                  name={filterKey === 'all' ? 'filter' : 'filter-circle-xmark'}
+                  size={15}
+                  color={
+                    openMenu === 'filter' ? theme.colors.borderAccent : theme.colors.textAccent
+                  }
+                />
+              }
+              accessibilityLabel={`Filter: ${FILTER_OPTIONS.find((option) => option.key === filterKey)?.label || 'All'}`}
+              open={openMenu === 'filter'}
+              onPress={() =>
+                openMenu === 'filter' ? closeMenu() : openAnchoredMenu('filter', filterButtonRef)
+              }
+            />
           </View>
-
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionHeaderTopRow}>
-              <Text style={styles.sectionTitle}>Sources</Text>
-              <View style={styles.transferActions}>
-                <Pressable
-                  accessibilityLabel="Import bookmarks from JSON"
-                  disabled={bookmarkTransferBusy !== null}
-                  onPress={handleImportBookmarks}
-                  style={[
-                    styles.transferButton,
-                    bookmarkTransferBusy !== null && styles.transferButtonDisabled,
-                  ]}
-                >
-                  <FontAwesome6 name="file-import" size={12} color={theme.colors.textAccent} />
-                  <Text style={styles.transferButtonText}>
-                    {bookmarkTransferBusy === 'import' ? 'Importing' : 'Import'}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  accessibilityLabel="Export bookmarks to JSON"
-                  disabled={bookmarkTransferBusy !== null}
-                  onPress={handleExportBookmarks}
-                  style={[
-                    styles.transferButton,
-                    bookmarkTransferBusy !== null && styles.transferButtonDisabled,
-                  ]}
-                >
-                  <FontAwesome6 name="file-export" size={12} color={theme.colors.textAccent} />
-                  <Text style={styles.transferButtonText}>
-                    {bookmarkTransferBusy === 'export' ? 'Exporting' : 'Export'}
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-            <Text style={styles.sectionCaption}>
-              Tap to open. Long-press a bookmark to edit it, swipe left to remove it, or move saved
-              bookmarks in and out as JSON.
-            </Text>
-          </View>
-        </>
-      )}
-
-      {libraryTab === 'offline' && (
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionHeaderTopRow}>
-            <Text style={styles.sectionTitle}>Offline Library</Text>
-            <View style={styles.transferActions}>
-              <Pressable
-                accessibilityLabel="Import EPUB file"
-                onPress={() => {
-                  void importEpub();
-                }}
-                style={styles.transferButton}
-              >
-                <FontAwesome6 name="book-open-reader" size={12} color={theme.colors.textAccent} />
-                <Text style={styles.transferButtonText}>Import EPUB</Text>
-              </Pressable>
-            </View>
-          </View>
-          <Text style={styles.sectionCaption}>
-            EPUB imports run in the background queue while you keep reading online or offline.
-          </Text>
+          {openMenu === 'filter' && (
+            <PopupMenu
+              title="Filter"
+              options={FILTER_OPTIONS}
+              selectedKey={filterKey}
+              anchor={menuAnchor}
+              onClose={closeMenu}
+              onSelect={(key) => {
+                if (key !== filterKey) setFilterKey(key);
+                closeMenu();
+              }}
+            />
+          )}
         </View>
-      )}
+        <View style={styles.menuAnchor}>
+          <View ref={sortButtonRef} collapsable={false}>
+            <MenuButton
+              icon={
+                <FontAwesome6
+                  name={sortDirection === 'asc' ? 'arrow-up-short-wide' : 'arrow-down-short-wide'}
+                  size={15}
+                  color={openMenu === 'sort' ? theme.colors.borderAccent : theme.colors.textAccent}
+                />
+              }
+              accessibilityLabel={`Sort: ${SORT_OPTIONS.find((option) => option.key === sortKey)?.label || 'Recent'} ${sortDirection === 'asc' ? 'ascending' : 'descending'}`}
+              open={openMenu === 'sort'}
+              onPress={() =>
+                openMenu === 'sort' ? closeMenu() : openAnchoredMenu('sort', sortButtonRef)
+              }
+            />
+          </View>
+          {openMenu === 'sort' && (
+            <PopupMenu
+              title="Sort"
+              options={SORT_OPTIONS}
+              selectedKey={sortKey}
+              anchor={menuAnchor}
+              onClose={closeMenu}
+              renderAccessory={(key, selected) =>
+                selected ? (
+                  <FontAwesome6
+                    name={sortDirection === 'asc' ? 'arrow-up' : 'arrow-down'}
+                    size={11}
+                    color={theme.colors.borderAccent}
+                  />
+                ) : null
+              }
+              onSelect={(key) => {
+                if (key === sortKey) {
+                  setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'));
+                } else {
+                  setSortKey(key);
+                  setSortDirection('asc');
+                }
+                closeMenu();
+              }}
+            />
+          )}
+        </View>
+      </View>
+    </Pressable>
+  );
+
+  const sourcesHeader = (
+    <View style={styles.sectionHeader}>
+      <View style={styles.sectionHeaderTopRow}>
+        <Text style={styles.sectionTitle}>Sources</Text>
+        <View style={styles.transferActions}>
+          <Pressable
+            accessibilityLabel="Import bookmarks from JSON"
+            disabled={bookmarkTransferBusy !== null}
+            onPress={handleImportBookmarks}
+            style={[
+              styles.transferButton,
+              bookmarkTransferBusy !== null && styles.transferButtonDisabled,
+            ]}
+          >
+            <FontAwesome6 name="file-import" size={12} color={theme.colors.textAccent} />
+            <Text style={styles.transferButtonText}>
+              {bookmarkTransferBusy === 'import' ? 'Importing' : 'Import'}
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Export bookmarks to JSON"
+            disabled={bookmarkTransferBusy !== null}
+            onPress={handleExportBookmarks}
+            style={[
+              styles.transferButton,
+              bookmarkTransferBusy !== null && styles.transferButtonDisabled,
+            ]}
+          >
+            <FontAwesome6 name="file-export" size={12} color={theme.colors.textAccent} />
+            <Text style={styles.transferButtonText}>
+              {bookmarkTransferBusy === 'export' ? 'Exporting' : 'Export'}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+      <Text style={styles.sectionCaption}>
+        Tap to open. Long-press a bookmark to edit it, swipe left to remove it, or move saved
+        bookmarks in and out as JSON.
+      </Text>
+    </View>
+  );
+
+  const offlineHeader = (
+    <Pressable style={styles.offlineHeaderWrap} onPress={() => setOpenMenu(null)}>
+      <View style={styles.sectionHeader}>
+        <View style={styles.sectionHeaderTopRow}>
+          <Text style={styles.sectionTitle}>Offline Library</Text>
+          <View style={styles.transferActions}>
+            <Pressable
+              accessibilityLabel="Import EPUB file"
+              onPress={() => {
+                void importEpub();
+              }}
+              style={styles.transferButton}
+            >
+              <FontAwesome6 name="book-open-reader" size={12} color={theme.colors.textAccent} />
+              <Text style={styles.transferButtonText}>Import EPUB</Text>
+            </Pressable>
+          </View>
+        </View>
+        <Text style={styles.sectionCaption}>
+          EPUB imports run in the background queue while you keep reading online or offline.
+        </Text>
+      </View>
     </Pressable>
   );
 
   return (
     <View style={styles.screen}>
       {libraryTab === 'library' ? (
-        <BookmarkList
-          items={filteredItems}
-          onPressImage={(url: string) => {
-            onDismiss?.();
-            loadPage(url);
-          }}
-          onRemoveBookmark={removeBookmark}
-          onEditBookmark={(item: SiteItem) => {
-            if (!item.isBookmark) return;
-            openBookmarkEditorForBookmark({ title: item.desc, url: item.url });
-          }}
-          bookmarkStore={bookmarks}
-          lastViewUrl={lastViewUrl}
-          headerComponent={header}
-        />
+        <View style={styles.libraryPane}>
+          <BookmarkList
+            items={filteredItems}
+            onPressImage={(url: string) => {
+              onDismiss?.();
+              loadPage(url);
+            }}
+            onRemoveBookmark={removeBookmark}
+            onEditBookmark={(item: SiteItem) => {
+              if (!item.isBookmark) return;
+              openBookmarkEditorForBookmark({ title: item.desc, url: item.url });
+            }}
+            bookmarkStore={bookmarks}
+            lastViewUrl={lastViewUrl}
+            scrollHeaderComponent={
+              <View>
+                {heroHeader}
+                {sourcesHeader}
+              </View>
+            }
+            stickyHeaderComponent={
+              <View style={styles.sourcesStickyHeader}>
+                {sharedStickyTabs}
+                {sourcesToolbar}
+              </View>
+            }
+          />
+        </View>
       ) : (
         <View style={styles.offlinePane}>
-          {header}
           <OfflineLibraryList
+            headerComponent={
+              <View>
+                {heroHeader}
+                {offlineHeader}
+              </View>
+            }
+            stickyHeaderComponent={sharedStickyTabs}
             stories={offlineStories}
             chaptersByStory={offlineChaptersByStory}
             importJobs={epubImportJobs}
@@ -638,6 +653,16 @@ const createStyles = (theme: Theme) =>
     },
     offlinePane: {
       flex: 1,
+    },
+    libraryPane: {
+      flex: 1,
+    },
+    sourcesStickyHeader: {
+      backgroundColor: theme.colors.background,
+      paddingBottom: theme.spacing.sm,
+    },
+    offlineHeaderWrap: {
+      paddingBottom: 10,
     },
     headerWrap: {
       zIndex: 2,
@@ -692,7 +717,6 @@ const createStyles = (theme: Theme) =>
       alignItems: 'flex-start',
     },
     tabRow: {
-      marginTop: 14,
       alignItems: 'flex-start',
     },
     searchWrap: {

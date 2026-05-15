@@ -21,7 +21,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BookmarkEditorModal from '../components/BookmarkEditorModal';
 import BookmarkToggleButton from '../components/buttons/BookmarkToggleButton';
-import EpubImportButton from '../components/buttons/EpubImportButton';
 import HVToggleButton from '../components/buttons/HVToggleButton';
 import LibraryToggleButton from '../components/buttons/LibraryToggleButton';
 import LibraryView from '../components/LibraryView';
@@ -166,10 +165,7 @@ export default function RootLayout() {
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <StatusBar style={theme.statusBar} />
       <View style={styles.controlBar}>
-        <View style={styles.leadingActions}>
-          {!urlInputFocus && <LibraryToggleButton />}
-          {!urlInputFocus && <EpubImportButton />}
-        </View>
+        <View style={styles.leadingActions}>{!urlInputFocus && <LibraryToggleButton />}</View>
         <View style={styles.urlInput}>
           <SearchInput
             placeholder="Input chinese website url"

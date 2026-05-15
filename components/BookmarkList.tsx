@@ -30,8 +30,13 @@ interface BookmarkListProps {
   onEditBookmark: (item: SiteItem) => void;
   bookmarkStore: SiteItem[];
   lastViewUrl: string;
-  headerComponent?: React.ReactElement;
+  scrollHeaderComponent?: React.ReactElement | null;
+  stickyHeaderComponent?: React.ReactNode;
 }
+
+type BookmarkListRow =
+  | { key: 'sticky-header'; kind: 'sticky-header' }
+  | { key: string; kind: 'item'; item: SiteItem; index: number };
 
 function getBookmarkImage(url: string): ImageSourcePropType | undefined {
   const piaotiaMatch = url.match(
@@ -169,40 +174,62 @@ function BookmarkList({
   onEditBookmark,
   bookmarkStore,
   lastViewUrl,
-  headerComponent,
+  scrollHeaderComponent,
+  stickyHeaderComponent,
 }: BookmarkListProps) {
   const theme = useTheme();
   const styles = createStyles(theme);
-  const data: SiteItem[] = items || [
-    { url: lastViewUrl, desc: 'Last Open URL', kind: 'recent' },
-    ...bookmarkStore.map((bookmark) => ({
-      ...bookmark,
-      uri: bookmark.uri || getBookmarkImage(bookmark.url),
-      isBookmark: true,
-      kind: 'bookmark' as const,
-    })),
-  ];
-
-  const getItemKey = (item: SiteItem, index: number) =>
-    `${item.url || item.desc || 'site'}-${index}`;
-
-  const renderListItem = ({ item, index }: { item: SiteItem; index: number }) => (
-    <SwipeableBookmarkListItem
-      item={item}
-      index={index}
-      onPressImage={onPressImage}
-      onRemoveBookmark={onRemoveBookmark}
-      onLongPressEdit={onEditBookmark}
-    />
+  const data = useMemo<SiteItem[]>(
+    () =>
+      items || [
+        { url: lastViewUrl, desc: 'Last Open URL', kind: 'recent' },
+        ...bookmarkStore.map((bookmark) => ({
+          ...bookmark,
+          uri: bookmark.uri || getBookmarkImage(bookmark.url),
+          isBookmark: true,
+          kind: 'bookmark' as const,
+        })),
+      ],
+    [bookmarkStore, items, lastViewUrl],
   );
+
+  const rows = useMemo<BookmarkListRow[]>(
+    () => [
+      { key: 'sticky-header', kind: 'sticky-header' },
+      ...data.map((item, index) => ({
+        key: `${item.url || item.desc || 'site'}-${index}`,
+        kind: 'item' as const,
+        item,
+        index,
+      })),
+    ],
+    [data],
+  );
+
+  const renderListItem = ({ item }: { item: BookmarkListRow }) => {
+    if (item.kind === 'sticky-header') {
+      return <View style={styles.stickyHeader}>{stickyHeaderComponent}</View>;
+    }
+
+    return (
+      <SwipeableBookmarkListItem
+        item={item.item}
+        index={item.index}
+        onPressImage={onPressImage}
+        onRemoveBookmark={onRemoveBookmark}
+        onLongPressEdit={onEditBookmark}
+      />
+    );
+  };
 
   return (
     <FlatList
-      data={data}
+      data={rows}
       renderItem={renderListItem}
-      keyExtractor={getItemKey}
+      keyExtractor={(item) => item.key}
       contentContainerStyle={styles.listContent}
-      ListHeaderComponent={headerComponent}
+      ListHeaderComponent={scrollHeaderComponent}
+      stickyHeaderIndices={[1]}
     />
   );
 }
@@ -212,6 +239,10 @@ const createStyles = (theme: Theme) =>
     listContent: {
       paddingHorizontal: theme.spacing.xxs,
       paddingBottom: 18,
+    },
+    stickyHeader: {
+      paddingBottom: theme.spacing.sm,
+      backgroundColor: theme.colors.background,
     },
     listDeleteBackground: {
       ...StyleSheet.absoluteFillObject,

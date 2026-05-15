@@ -24,6 +24,8 @@ type OverlayKind = 'filter' | 'jump' | 'mode' | null;
 type StoryOverlayKind = 'filter' | null;
 
 interface OfflineLibraryListProps {
+  headerComponent?: React.ReactNode;
+  stickyHeaderComponent?: React.ReactNode;
   stories: OfflineStoryRecord[];
   chaptersByStory: Record<number, OfflineChapterRecord[]>;
   importJobs: EpubImportJobRecord[];
@@ -60,6 +62,14 @@ type ChapterRow = {
   chapter: OfflineChapterRecord;
   storyName: string;
 };
+
+type StickyRow = {
+  id: 'sticky-header';
+  kind: 'sticky-header';
+};
+
+type StoryListRow = StickyRow | StoryRow;
+type ChapterListRow = StickyRow | ChapterRow;
 
 const FILTER_OPTIONS: Array<{ key: OfflineFilterKey; label: string }> = [
   { key: 'all', label: 'All statuses' },
@@ -223,6 +233,8 @@ function CompactSheet({
 }
 
 export default function OfflineLibraryList({
+  headerComponent,
+  stickyHeaderComponent,
   stories,
   chaptersByStory,
   importJobs,
@@ -238,8 +250,8 @@ export default function OfflineLibraryList({
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const styles = createStyles(theme);
-  const listRef = useRef<FlatList<ChapterRow>>(null);
-  const storyListRef = useRef<FlatList<StoryRow>>(null);
+  const listRef = useRef<FlatList<ChapterListRow>>(null);
+  const storyListRef = useRef<FlatList<StoryListRow>>(null);
   const storyChapterListRef = useRef<FlatList<ChapterRow>>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<OfflineViewMode>('grouped');
@@ -393,7 +405,7 @@ export default function OfflineLibraryList({
     }
 
     if (index < 0 || index >= chapterRows.length) return;
-    listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.1 });
+    listRef.current?.scrollToIndex({ index: index + 1, animated: true, viewPosition: 0.1 });
   };
 
   const scrollToActiveStoryIndex = (index: number) => {
@@ -412,8 +424,9 @@ export default function OfflineLibraryList({
     setStoryOverlayKind(null);
   };
 
-  const listHeader = (
-    <View style={styles.topBar}>
+  const scrollHeader = (
+    <View style={styles.scrollHeader}>
+      {headerComponent}
       {importJobsVisible.length > 0 && (
         <View style={styles.importJobList}>
           {importJobsVisible.map((job) => (
@@ -456,35 +469,6 @@ export default function OfflineLibraryList({
           ))}
         </View>
       )}
-      <View style={styles.searchWrap}>
-        <TextInput
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholder={viewMode === 'grouped' ? 'Search stories or chapters' : 'Search all chapters'}
-          placeholderTextColor={theme.colors.inputPlaceholder}
-          style={styles.searchInput}
-        />
-        {!!searchQuery && (
-          <Pressable
-            accessibilityLabel="Clear search"
-            onPress={() => setSearchQuery('')}
-            style={styles.clearButton}
-          >
-            <FontAwesome6 name="xmark" size={12} color={theme.colors.textAccent} />
-          </Pressable>
-        )}
-      </View>
-      <View style={styles.toolbarButtonRow}>
-        <Pressable onPress={() => setOverlayKind('mode')} style={styles.toolbarButton}>
-          <Text style={styles.toolbarButtonLabel}>{viewMode === 'grouped' ? 'Stories' : 'All'}</Text>
-        </Pressable>
-        <Pressable onPress={() => setOverlayKind('filter')} style={styles.toolbarButton}>
-          <Text style={styles.toolbarButtonLabel}>{filterKey === 'all' ? 'Filter' : 'Status'}</Text>
-        </Pressable>
-        <Pressable onPress={() => setOverlayKind('jump')} style={styles.toolbarButton}>
-          <Text style={styles.toolbarButtonLabel}>Jump</Text>
-        </Pressable>
-      </View>
       <Text style={styles.compactMeta}>
         {viewMode === 'grouped' ? `${storyRows.length} stories` : `${chapterRows.length} chapters`}{' '}
         • {summaryLabel}
@@ -493,6 +477,75 @@ export default function OfflineLibraryList({
       </Text>
     </View>
   );
+
+  const stickyControls = (
+    <View style={styles.stickyControls}>
+      {stickyHeaderComponent}
+      <View style={styles.stickyControlsBody}>
+        <View style={styles.searchWrap}>
+          <TextInput
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder={
+              viewMode === 'grouped' ? 'Search stories or chapters' : 'Search all chapters'
+            }
+            placeholderTextColor={theme.colors.inputPlaceholder}
+            style={styles.searchInput}
+          />
+          {!!searchQuery && (
+            <Pressable
+              accessibilityLabel="Clear search"
+              onPress={() => setSearchQuery('')}
+              style={styles.clearButton}
+            >
+              <FontAwesome6 name="xmark" size={12} color={theme.colors.textAccent} />
+            </Pressable>
+          )}
+        </View>
+        <View style={styles.toolbarButtonRow}>
+          <Pressable onPress={() => setOverlayKind('mode')} style={styles.toolbarButton}>
+            <Text style={styles.toolbarButtonLabel}>
+              {viewMode === 'grouped' ? 'Stories' : 'All'}
+            </Text>
+          </Pressable>
+          <Pressable onPress={() => setOverlayKind('filter')} style={styles.toolbarButton}>
+            <Text style={styles.toolbarButtonLabel}>
+              {filterKey === 'all' ? 'Filter' : 'Status'}
+            </Text>
+          </Pressable>
+          <Pressable onPress={() => setOverlayKind('jump')} style={styles.toolbarButton}>
+            <Text style={styles.toolbarButtonLabel}>Jump</Text>
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  );
+
+  const storyListRows = useMemo<StoryListRow[]>(
+    () => [{ id: 'sticky-header', kind: 'sticky-header' }, ...storyRows],
+    [storyRows],
+  );
+
+  const chapterListRows = useMemo<ChapterListRow[]>(
+    () => [{ id: 'sticky-header', kind: 'sticky-header' }, ...chapterRows],
+    [chapterRows],
+  );
+
+  const renderStoryListRow = ({ item }: { item: StoryListRow }) => {
+    if (item.kind === 'sticky-header') {
+      return stickyControls;
+    }
+
+    return renderStoryRow({ item });
+  };
+
+  const renderChapterListRow = ({ item }: { item: ChapterListRow }) => {
+    if (item.kind === 'sticky-header') {
+      return stickyControls;
+    }
+
+    return renderChapterCard(item);
+  };
 
   const renderStoryRow = ({ item }: { item: StoryRow }) => {
     const { story, chapterCount, downloadedCount, failedCount, queuedCount } = item;
@@ -610,67 +663,73 @@ export default function OfflineLibraryList({
       {viewMode === 'grouped' ? (
         <FlatList
           ref={storyListRef}
-          data={storyRows}
+          data={storyListRows}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.content}
-          ListHeaderComponent={listHeader}
+          ListHeaderComponent={scrollHeader}
+          stickyHeaderIndices={[1]}
           initialNumToRender={18}
           maxToRenderPerBatch={24}
           removeClippedSubviews
           windowSize={10}
-          renderItem={renderStoryRow}
-          ListEmptyComponent={
-            stories.length === 0 ? (
-              <View style={styles.emptyCard}>
-                <Text style={styles.emptyTitle}>No offline stories yet</Text>
-                <Text style={styles.emptyText}>
-                  Use the download button from the reader to save chapters, then open each story in
-                  a focused chapter browser.
-                </Text>
-              </View>
-            ) : (
-              <View style={styles.emptyCard}>
-                <Text style={styles.emptyTitle}>No stories match this search</Text>
-                <Text style={styles.emptyText}>
-                  Try a shorter search, or switch to the all-chapters view.
-                </Text>
-              </View>
-            )
+          renderItem={renderStoryListRow}
+          ListFooterComponent={
+            storyRows.length === 0 ? (
+              stories.length === 0 ? (
+                <View style={styles.emptyCard}>
+                  <Text style={styles.emptyTitle}>No offline stories yet</Text>
+                  <Text style={styles.emptyText}>
+                    Use the download button from the reader to save chapters, then open each story
+                    in a focused chapter browser.
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.emptyCard}>
+                  <Text style={styles.emptyTitle}>No stories match this search</Text>
+                  <Text style={styles.emptyText}>
+                    Try a shorter search, or switch to the all-chapters view.
+                  </Text>
+                </View>
+              )
+            ) : null
           }
         />
       ) : (
         <FlatList
           ref={listRef}
-          data={chapterRows}
+          data={chapterListRows}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.content}
-          ListHeaderComponent={listHeader}
+          ListHeaderComponent={scrollHeader}
+          stickyHeaderIndices={[1]}
           initialNumToRender={20}
           maxToRenderPerBatch={28}
           removeClippedSubviews
           windowSize={12}
           onScrollToIndexFailed={({ index }) => {
             requestAnimationFrame(() =>
-              scrollToMainChapterIndex(Math.min(index, chapterRows.length - 1)),
+              scrollToMainChapterIndex(Math.min(index - 1, chapterRows.length - 1)),
             );
           }}
-          renderItem={({ item }) => renderChapterCard(item)}
-          ListEmptyComponent={
-            stories.length === 0 ? (
-              <View style={styles.emptyCard}>
-                <Text style={styles.emptyTitle}>No offline stories yet</Text>
-                <Text style={styles.emptyText}>
-                  Save some chapters first, then they will appear here.
-                </Text>
-              </View>
-            ) : (
-              <View style={styles.emptyCard}>
-                <Text style={styles.emptyTitle}>No chapters match this view</Text>
-                <Text style={styles.emptyText}>
-                  Try another status filter or clear the search query.
-                </Text>
-              </View>
-            )
+          renderItem={renderChapterListRow}
+          ListFooterComponent={
+            chapterRows.length === 0 ? (
+              stories.length === 0 ? (
+                <View style={styles.emptyCard}>
+                  <Text style={styles.emptyTitle}>No offline stories yet</Text>
+                  <Text style={styles.emptyText}>
+                    Save some chapters first, then they will appear here.
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.emptyCard}>
+                  <Text style={styles.emptyTitle}>No chapters match this view</Text>
+                  <Text style={styles.emptyText}>
+                    Try another status filter or clear the search query.
+                  </Text>
+                </View>
+              )
+            ) : null
           }
         />
       )}
@@ -886,6 +945,17 @@ const createStyles = (theme: Theme) =>
     },
     content: {
       paddingBottom: 22,
+    },
+    scrollHeader: {
+      paddingBottom: theme.spacing.sm,
+    },
+    stickyControls: {
+      paddingBottom: theme.spacing.sm,
+      backgroundColor: theme.colors.background,
+      zIndex: 1,
+    },
+    stickyControlsBody: {
+      marginTop: theme.spacing.sm,
     },
     topBar: {
       paddingBottom: theme.spacing.sm,

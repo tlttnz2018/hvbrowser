@@ -377,9 +377,7 @@ export async function upsertOfflineStory(
         cover_image_uri:
           input.coverImageUri !== undefined ? input.coverImageUri : existingById.coverImageUri,
         source_file_name:
-          input.sourceFileName !== undefined
-            ? input.sourceFileName
-            : existingById.sourceFileName,
+          input.sourceFileName !== undefined ? input.sourceFileName : existingById.sourceFileName,
         asset_root_uri:
           input.assetRootUri !== undefined ? input.assetRootUri : existingById.assetRootUri,
         updated_at: now,

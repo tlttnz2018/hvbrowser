@@ -1,6 +1,10 @@
 import { useCallback } from 'react';
 
-import { getOfflineChapterById, updateOfflineChapterStatus } from '../db/offline';
+import {
+  getOfflineChapterById,
+  getOfflineChapterByUrl,
+  updateOfflineChapterStatus,
+} from '../db/offline';
 import { useAppStore } from '../stores/useAppStore';
 import { useWebPageStore } from '../stores/useWebPageStore';
 import { cleanupHtml } from '../utils/cleanup';
@@ -35,73 +39,14 @@ export function usePageLoader() {
   const setFullSite = useWebPageStore((s) => s.setFullSite);
   const setUrlInputFocus = useWebPageStore((s) => s.setUrlInputFocus);
 
-  const loadPage = useCallback(
-    async (rawUrl: string, options?: LoadPageOptions) => {
-      if (!rawUrl) return;
-      if (
-        rawUrl.indexOf('about') !== -1 ||
-        rawUrl.indexOf('Bundle/Application') !== -1 ||
-        rawUrl.indexOf('postMessage') !== -1
-      ) {
-        return;
-      }
+  const resolveOfflineChapterForUrl = useCallback(async (url: string) => {
+    const chapterFromState = useAppStore.getState().getOfflineChapterByUrlFromState(url);
+    if (chapterFromState) {
+      return chapterFromState;
+    }
 
-      const currentUrl = useAppStore.getState().currentUrl;
-      const url = fixUrl(currentUrl, rawUrl);
-
-      if (!options?.skipHistory) {
-        pushCurrentHistory();
-      }
-      setUrlInputFocus(false);
-      setPendingContentAnchor(null);
-      setCurrentContentSource('remote');
-      setHtmlContent('', '');
-      setCurrentUrl(url);
-      setLoading(true);
-      setLoadingStage('downloading');
-      setError(false);
-
-      try {
-        const dictionary = useAppStore.getState().dictionary;
-        const htmlContent = await downloadHtmlPage(url);
-        setLoadingStage('converting');
-        const htmlClean = await cleanupHtml(htmlContent);
-        const htmlOrig = injectBaseHref(htmlContent, url);
-        const htmlConvert = await convertHtmlPageToHV(htmlClean || '', dictionary);
-        const htmlHv = injectBaseHref(htmlConvert, url);
-
-        const title = extractHtmlTitle(htmlConvert) || extractHtmlTitle(htmlContent) || url;
-        setWebPageTitle(title);
-        setLastViewUrl(url);
-        await markBookmarkVisited(url);
-        setHtmlContent('\ufeff' + htmlOrig, '\ufeff' + htmlHv);
-        setLoadingStage('rendering');
-        setError(false);
-      } catch (e) {
-        console.error('Page load error:', e);
-        setError(true);
-        setLoading(false);
-      } finally {
-        if (useAppStore.getState().error) {
-          setLoading(false);
-        }
-      }
-    },
-    [
-      pushCurrentHistory,
-      setLoading,
-      setLoadingStage,
-      setError,
-      setHtmlContent,
-      setCurrentUrl,
-      setPendingContentAnchor,
-      setWebPageTitle,
-      setLastViewUrl,
-      markBookmarkVisited,
-      setCurrentContentSource,
-      setUrlInputFocus,
-    ],
-  );
+    return await getOfflineChapterByUrl(url);
+  }, []);
 
   const loadOfflineChapter = useCallback(
     async (chapterId: number, options?: LoadOfflineChapterOptions) => {
@@ -179,6 +124,87 @@ export function usePageLoader() {
       setUrlInputFocus,
       setFullSite,
       setWebPageTitle,
+    ],
+  );
+
+  const loadPage = useCallback(
+    async (rawUrl: string, options?: LoadPageOptions) => {
+      if (!rawUrl) return;
+      if (
+        rawUrl.indexOf('about') !== -1 ||
+        rawUrl.indexOf('Bundle/Application') !== -1 ||
+        rawUrl.indexOf('postMessage') !== -1
+      ) {
+        return;
+      }
+
+      const currentUrl = useAppStore.getState().currentUrl;
+      const url = fixUrl(currentUrl, rawUrl);
+      const offlineChapter = url.startsWith('epub://')
+        ? await resolveOfflineChapterForUrl(url)
+        : null;
+
+      if (offlineChapter) {
+        await loadOfflineChapter(offlineChapter.id, {
+          skipHistory: options?.skipHistory,
+          anchor: url.includes('#') ? url.slice(url.indexOf('#')) : null,
+        });
+        return;
+      }
+
+      if (!options?.skipHistory) {
+        pushCurrentHistory();
+      }
+      setUrlInputFocus(false);
+      setPendingContentAnchor(null);
+      setCurrentContentSource('remote');
+      setHtmlContent('', '');
+      setCurrentUrl(url);
+      setLoading(true);
+      setLoadingStage('downloading');
+      setError(false);
+
+      try {
+        const dictionary = useAppStore.getState().dictionary;
+        const htmlContent = await downloadHtmlPage(url);
+        setLoadingStage('converting');
+        const htmlClean = await cleanupHtml(htmlContent);
+        const htmlOrig = injectBaseHref(htmlContent, url);
+        const htmlConvert = await convertHtmlPageToHV(htmlClean || '', dictionary);
+        const htmlHv = injectBaseHref(htmlConvert, url);
+
+        const title = extractHtmlTitle(htmlConvert) || extractHtmlTitle(htmlContent) || url;
+        setWebPageTitle(title);
+        setLastViewUrl(url);
+        await markBookmarkVisited(url);
+        setHtmlContent('\ufeff' + htmlOrig, '\ufeff' + htmlHv);
+        setLoadingStage('rendering');
+        setError(false);
+      } catch (e) {
+        console.error('Page load error:', e);
+        setError(true);
+        setLoading(false);
+      } finally {
+        if (useAppStore.getState().error) {
+          setLoading(false);
+        }
+      }
+    },
+    [
+      pushCurrentHistory,
+      setLoading,
+      setLoadingStage,
+      setError,
+      setHtmlContent,
+      setCurrentUrl,
+      setPendingContentAnchor,
+      setWebPageTitle,
+      setLastViewUrl,
+      markBookmarkVisited,
+      setCurrentContentSource,
+      setUrlInputFocus,
+      loadOfflineChapter,
+      resolveOfflineChapterForUrl,
     ],
   );
 

@@ -12,6 +12,7 @@ Use this skill for reader-load UX, WebView behavior, HTML conversion flow, or na
 1. [`hooks/usePageLoader.ts`](/Users/saigon/dev/hvbrowser/hooks/usePageLoader.ts)
 2. [`app/index.tsx`](/Users/saigon/dev/hvbrowser/app/index.tsx)
 3. [`stores/useAppStore.ts`](/Users/saigon/dev/hvbrowser/stores/useAppStore.ts)
+4. [`db/offline.ts`](/Users/saigon/dev/hvbrowser/db/offline.ts) when the issue involves offline chapters, EPUBs, bookmarks, or reader history
 
 Read these only if needed:
 
@@ -27,6 +28,7 @@ Read these only if needed:
 3. Remote pages are downloaded, cleaned, converted to Han-Viet, then stored as `htmlOrig` and `htmlHV`.
 4. `app/index.tsx` chooses the active HTML variant and renders it in the `WebView`.
 5. Injected bridge code handles link interception, scroll reporting, dismissal taps, and reader restoration.
+6. Offline EPUB chapters reuse the same reader surface, but their `epub://...` URLs must resolve back to offline chapter records instead of going through remote fetch logic.
 
 ## Invariants
 
@@ -35,6 +37,8 @@ Read these only if needed:
 - If a new page is starting, clear stale HTML before pairing the next URL with fresh content.
 - `currentContentSource === 'offline'` changes navigation behavior; preserve that branch logic.
 - Reader mode and full-site mode share the same `WebView` surface but differ in HTML shaping and behavior.
+- `epub://...` URLs are synthetic offline chapter identities. Bookmarks, back navigation, and link taps must resolve them through offline chapter lookup before any remote `loadPage` path continues.
+- EPUB chapters may start with only `originalHtml`; Han-Viet HTML can be generated lazily on first open.
 
 ## Common Failure Modes
 
@@ -43,6 +47,7 @@ Read these only if needed:
 - Injected JS changes break navigation interception or reader scroll restoration.
 - A fix updates only `htmlOrig` or only `htmlHV`.
 - A loading boolean grows ambiguous; use a stage enum if the UI needs real progress states.
+- EPUB bookmarks or cross-chapter links open the wrong content because a synthetic `epub://...` URL was treated like a remote URL.
 
 ## Change Strategy
 
