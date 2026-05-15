@@ -8,11 +8,20 @@ if (typeof global !== 'undefined') {
 import { Slot } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useRef } from 'react';
-import { Alert, Animated, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
+import {
+  Alert,
+  Animated,
+  AppState,
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BookmarkEditorModal from '../components/BookmarkEditorModal';
 import BookmarkToggleButton from '../components/buttons/BookmarkToggleButton';
+import EpubImportButton from '../components/buttons/EpubImportButton';
 import HVToggleButton from '../components/buttons/HVToggleButton';
 import LibraryToggleButton from '../components/buttons/LibraryToggleButton';
 import LibraryView from '../components/LibraryView';
@@ -27,6 +36,7 @@ import { usePageLoader } from '../hooks/usePageLoader';
 import { useAppStore } from '../stores/useAppStore';
 import { useWebPageStore } from '../stores/useWebPageStore';
 import { absoluteFill, Theme, useTheme } from '../theme';
+import { ensureEpubImportQueueRunning } from '../utils/epub-import-queue';
 import { ensureOfflineDownloadQueueRunning } from '../utils/offline-download-queue';
 
 export default function RootLayout() {
@@ -64,6 +74,7 @@ export default function RootLayout() {
   const pendingStoryResolution = useAppStore((s) => s.pendingStoryResolution);
   const offlineStories = useAppStore((s) => s.offlineStories);
   const downloadQueue = useAppStore((s) => s.downloadQueue);
+  const epubImportJobs = useAppStore((s) => s.epubImportJobs);
   const {
     fullSite,
     libraryDrawerOpen,
@@ -101,6 +112,32 @@ export default function RootLayout() {
     }
   }, [downloadQueue.length]);
 
+  useEffect(() => {
+    if (
+      epubImportJobs.some((job) =>
+        ['queued', 'extracting', 'parsing', 'importing', 'paused'].includes(job.status),
+      )
+    ) {
+      ensureEpubImportQueueRunning().catch((error) => {
+        console.error('EPUB import queue error:', error);
+      });
+    }
+  }, [epubImportJobs]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        ensureEpubImportQueueRunning().catch((error) => {
+          console.error('EPUB import resume error:', error);
+        });
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
   const safeCurrentUrl = currentUrl.indexOf('Bundle/Application') === -1 ? currentUrl : '';
 
   const backButtonEnabled = history.length >= 1;
@@ -129,7 +166,10 @@ export default function RootLayout() {
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <StatusBar style={theme.statusBar} />
       <View style={styles.controlBar}>
-        <View style={styles.leadingActions}>{!urlInputFocus && <LibraryToggleButton />}</View>
+        <View style={styles.leadingActions}>
+          {!urlInputFocus && <LibraryToggleButton />}
+          {!urlInputFocus && <EpubImportButton />}
+        </View>
         <View style={styles.urlInput}>
           <SearchInput
             placeholder="Input chinese website url"

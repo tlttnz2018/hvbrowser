@@ -18,6 +18,7 @@ interface WebPageState {
   setMoreMenu: (open: boolean) => void;
   toggleMoreMenu: () => void;
   toggleCss: () => void;
+  setFullSite: (fullSite: boolean) => void;
   increaseFont: () => void;
   decreaseFont: () => void;
   resetFont: () => void;
@@ -42,6 +43,8 @@ export const useWebPageStore = create<WebPageState>()((set, get) => ({
   toggleMoreMenu: () => set((state) => ({ moreMenu: !state.moreMenu })),
 
   toggleCss: () => set((state) => ({ fullSite: !state.fullSite })),
+
+  setFullSite: (fullSite) => set({ fullSite }),
 
   increaseFont: () => {
     const { fontSize } = get();

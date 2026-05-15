@@ -12,8 +12,12 @@ import {
   touchBookmarkByUrl,
 } from '../db/bookmarks';
 import {
+  createEpubImportJob,
+  deleteEpubImportJob,
   ensureOfflineDbReady,
+  EpubImportJobRecord,
   getOfflineChapterByUrl,
+  listEpubImportJobs,
   listOfflineChapters,
   listOfflineStories,
   OfflineChapterRecord,
@@ -63,8 +67,17 @@ export interface PendingBookmarkDraft {
   url: string;
 }
 
+export type ReaderHistoryEntry =
+  | { kind: 'remote-url'; url: string }
+  | { kind: 'offline-chapter'; chapterId: number; url: string };
+
 type ReaderContentSource = 'remote' | 'offline';
-export type ReaderLoadingStage = 'downloading' | 'converting' | 'rendering';
+export type ReaderLoadingStage =
+  | 'downloading'
+  | 'extracting'
+  | 'parsing'
+  | 'converting'
+  | 'rendering';
 
 interface AppState {
   loading: boolean;
@@ -75,7 +88,7 @@ interface AppState {
   currentUrl: string;
   webPageTitle: string;
   lastViewUrl: string;
-  history: string[];
+  history: ReaderHistoryEntry[];
   bookmarksHydrated: boolean;
   bookmarks: Bookmark[];
   dictionary: Record<string, string>;
@@ -83,10 +96,14 @@ interface AppState {
   offlineLibraryHydrated: boolean;
   offlineStories: OfflineStoryRecord[];
   offlineChaptersByStory: Record<number, OfflineChapterRecord[]>;
+  epubImportJobs: EpubImportJobRecord[];
   downloadQueue: number[];
   activeDownloadId: number | null;
   downloadQueueRunning: boolean;
   downloadQueueLastError: string | null;
+  activeEpubImportJobId: number | null;
+  epubImportQueueRunning: boolean;
+  epubImportLastError: string | null;
   bookmarkEditorVisible: boolean;
   pendingBookmarkDraft: PendingBookmarkDraft | null;
   pageRolePickerVisible: boolean;
@@ -96,12 +113,17 @@ interface AppState {
   pendingStoryResolution: PendingStoryResolution | null;
   currentContentSource: ReaderContentSource;
   currentOfflineChapterId: number | null;
+  pendingContentAnchor: string | null;
 
   isCurrentBookmarked: () => boolean;
   getCurrentBookmarkFromState: () => Bookmark | null;
   hasWebPage: () => boolean;
   getOfflineChapterByIdFromState: (id: number) => OfflineChapterRecord | null;
   getOfflineChapterByUrlFromState: (url: string) => OfflineChapterRecord | null;
+  getOfflineStoryByIdFromState: (id: number) => OfflineStoryRecord | null;
+  getCurrentOfflineStoryFromState: () => OfflineStoryRecord | null;
+  getOfflineChaptersForStoryFromState: (storyId: number) => OfflineChapterRecord[];
+  getCurrentReaderHistoryEntry: () => ReaderHistoryEntry | null;
 
   setLoading: (loading: boolean) => void;
   setLoadingStage: (stage: ReaderLoadingStage | null) => void;
@@ -110,8 +132,9 @@ interface AppState {
   setCurrentUrl: (url: string) => void;
   setWebPageTitle: (title: string) => void;
   setLastViewUrl: (url: string) => void;
-  pushHistory: (url: string) => void;
-  popHistory: () => string | undefined;
+  setPendingContentAnchor: (anchor: string | null) => void;
+  pushCurrentHistory: () => void;
+  popHistory: () => ReaderHistoryEntry | undefined;
   initializeBookmarks: () => Promise<void>;
   initializeOfflineLibrary: () => Promise<void>;
   openBookmarkEditor: () => void;
@@ -132,11 +155,22 @@ interface AppState {
     chapterUrl: string;
     chapterOrder?: number | null;
   }) => Promise<OfflineChapterRecord>;
+  enqueueEpubImportJob: (input: {
+    fileName: string;
+    pickedFileUri: string;
+  }) => Promise<EpubImportJobRecord>;
+  removeEpubImportJob: (id: number) => Promise<void>;
   markQueueItemStarted: (id: number) => void;
   markQueueItemCompleted: (chapter: OfflineChapterRecord) => void;
   markQueueItemFailed: (id: number, error: string) => void;
   setDownloadQueueRunning: (running: boolean) => void;
   setDownloadQueueLastError: (error: string | null) => void;
+  markEpubImportJobStarted: (id: number) => void;
+  markEpubImportJobProgress: (job: EpubImportJobRecord) => void;
+  markEpubImportJobCompleted: (job: EpubImportJobRecord) => void;
+  markEpubImportJobFailed: (id: number, error: string) => void;
+  setEpubImportQueueRunning: (running: boolean) => void;
+  setEpubImportLastError: (error: string | null) => void;
   openOfflineChapterInReader: (chapterId: number) => void;
   setCurrentContentSource: (source: ReaderContentSource, offlineChapterId?: number | null) => void;
   openPageRolePicker: (action: PendingOfflineAction) => void;
@@ -152,6 +186,10 @@ function toStoreBookmark(bookmark: BookmarkRecord): Bookmark {
     ...bookmark,
     desc: bookmark.title,
   };
+}
+
+function normalizeOfflineChapterLookupUrl(url: string) {
+  return url.replace(/#.*$/, '');
 }
 
 function groupOfflineChapters(chapters: OfflineChapterRecord[]) {
@@ -191,6 +229,16 @@ function upsertOfflineChapterInState(
   return groupOfflineChapters(nextEntries);
 }
 
+function upsertEpubImportJobInState(
+  jobs: EpubImportJobRecord[],
+  job: EpubImportJobRecord,
+): EpubImportJobRecord[] {
+  const nextJobs = jobs.filter((entry) => entry.id !== job.id);
+  nextJobs.unshift(job);
+  nextJobs.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  return nextJobs;
+}
+
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
@@ -210,10 +258,14 @@ export const useAppStore = create<AppState>()(
       offlineLibraryHydrated: false,
       offlineStories: [],
       offlineChaptersByStory: {},
+      epubImportJobs: [],
       downloadQueue: [],
       activeDownloadId: null,
       downloadQueueRunning: false,
       downloadQueueLastError: null,
+      activeEpubImportJobId: null,
+      epubImportQueueRunning: false,
+      epubImportLastError: null,
       bookmarkEditorVisible: false,
       pendingBookmarkDraft: null,
       pageRolePickerVisible: false,
@@ -223,6 +275,7 @@ export const useAppStore = create<AppState>()(
       pendingStoryResolution: null,
       currentContentSource: 'remote',
       currentOfflineChapterId: null,
+      pendingContentAnchor: null,
 
       getCurrentBookmarkFromState: () => {
         const { currentUrl, bookmarks } = get();
@@ -245,8 +298,49 @@ export const useAppStore = create<AppState>()(
       },
 
       getOfflineChapterByUrlFromState: (url) => {
+        const normalizedUrl = normalizeOfflineChapterLookupUrl(url);
         const chapters = flattenOfflineChapters(get().offlineChaptersByStory);
-        return chapters.find((chapter) => chapter.chapterUrl === url) ?? null;
+        return chapters.find((chapter) => chapter.chapterUrl === normalizedUrl) ?? null;
+      },
+
+      getOfflineStoryByIdFromState: (id) => {
+        return get().offlineStories.find((story) => story.id === id) ?? null;
+      },
+
+      getCurrentOfflineStoryFromState: () => {
+        const chapterId = get().currentOfflineChapterId;
+        if (!chapterId) {
+          return null;
+        }
+
+        const chapter = get().getOfflineChapterByIdFromState(chapterId);
+        if (!chapter) {
+          return null;
+        }
+
+        return get().getOfflineStoryByIdFromState(chapter.storyId);
+      },
+
+      getOfflineChaptersForStoryFromState: (storyId) => {
+        return get().offlineChaptersByStory[storyId] ?? [];
+      },
+
+      getCurrentReaderHistoryEntry: () => {
+        const { currentContentSource, currentOfflineChapterId, currentUrl } = get();
+        if (currentContentSource === 'offline' && currentOfflineChapterId) {
+          return {
+            kind: 'offline-chapter',
+            chapterId: currentOfflineChapterId,
+            url: currentUrl,
+          };
+        }
+        if (currentUrl) {
+          return {
+            kind: 'remote-url',
+            url: currentUrl,
+          };
+        }
+        return null;
       },
 
       setLoading: (loading) => set({ loading, loadingStage: loading ? get().loadingStage : null }),
@@ -256,20 +350,37 @@ export const useAppStore = create<AppState>()(
       setCurrentUrl: (currentUrl) => set({ currentUrl }),
       setWebPageTitle: (webPageTitle) => set({ webPageTitle }),
       setLastViewUrl: (lastViewUrl) => set({ lastViewUrl }),
+      setPendingContentAnchor: (pendingContentAnchor) => set({ pendingContentAnchor }),
 
-      pushHistory: (url) =>
+      pushCurrentHistory: () =>
         set((state) => {
-          if (state.currentUrl === url) return state;
-          const history = [...state.history, url];
+          const currentEntry = get().getCurrentReaderHistoryEntry();
+          if (!currentEntry) {
+            return state;
+          }
+
+          const lastEntry = state.history[state.history.length - 1];
+          if (
+            lastEntry &&
+            lastEntry.kind === currentEntry.kind &&
+            lastEntry.url === currentEntry.url &&
+            (lastEntry.kind !== 'offline-chapter' ||
+              currentEntry.kind !== 'offline-chapter' ||
+              lastEntry.chapterId === currentEntry.chapterId)
+          ) {
+            return state;
+          }
+
+          const history = [...state.history, currentEntry];
           if (history.length > 50) history.shift();
           return { history };
         }),
 
       popHistory: () => {
         const history = [...get().history];
-        const url = history.pop();
+        const entry = history.pop();
         set({ history });
-        return url;
+        return entry;
       },
 
       initializeBookmarks: async () => {
@@ -349,9 +460,10 @@ export const useAppStore = create<AppState>()(
       },
 
       refreshOfflineLibrary: async () => {
-        const [stories, chapters] = await Promise.all([
+        const [stories, chapters, jobs] = await Promise.all([
           listOfflineStories(),
           listOfflineChapters(),
+          listEpubImportJobs(),
         ]);
         const activeDownload =
           chapters.find((chapter) => chapter.downloadStatus === 'downloading') ?? null;
@@ -363,11 +475,15 @@ export const useAppStore = create<AppState>()(
             return leftOrder - rightOrder || left.createdAt.localeCompare(right.createdAt);
           })
           .map((chapter) => chapter.id);
+        const activeImportJob =
+          jobs.find((job) => ['extracting', 'parsing', 'importing'].includes(job.status)) ?? null;
 
         set({
           offlineStories: stories,
           offlineChaptersByStory: groupOfflineChapters(chapters),
+          epubImportJobs: jobs,
           activeDownloadId: activeDownload?.id ?? null,
+          activeEpubImportJobId: activeImportJob?.id ?? null,
           downloadQueue: queuedIds,
         });
       },
@@ -456,6 +572,27 @@ export const useAppStore = create<AppState>()(
         return chapter;
       },
 
+      enqueueEpubImportJob: async ({ fileName, pickedFileUri }) => {
+        const job = await createEpubImportJob({
+          fileName,
+          pickedFileUri,
+        });
+        set((state) => ({
+          epubImportJobs: upsertEpubImportJobInState(state.epubImportJobs, job),
+          epubImportLastError: null,
+        }));
+        return job;
+      },
+
+      removeEpubImportJob: async (id) => {
+        await deleteEpubImportJob(id);
+        set((state) => ({
+          epubImportJobs: state.epubImportJobs.filter((job) => job.id !== id),
+          activeEpubImportJobId:
+            state.activeEpubImportJobId === id ? null : state.activeEpubImportJobId,
+        }));
+      },
+
       markQueueItemStarted: (id) =>
         set((state) => {
           const chapter = state.getOfflineChapterByIdFromState(id);
@@ -508,6 +645,46 @@ export const useAppStore = create<AppState>()(
 
       setDownloadQueueRunning: (downloadQueueRunning) => set({ downloadQueueRunning }),
       setDownloadQueueLastError: (downloadQueueLastError) => set({ downloadQueueLastError }),
+
+      markEpubImportJobStarted: (id) =>
+        set((state) => ({
+          activeEpubImportJobId: id,
+          epubImportQueueRunning: true,
+          epubImportJobs: state.epubImportJobs.map((job) =>
+            job.id === id && job.status === 'queued' ? { ...job, status: 'extracting' } : job,
+          ),
+        })),
+
+      markEpubImportJobProgress: (job) =>
+        set((state) => ({
+          activeEpubImportJobId: job.id,
+          epubImportQueueRunning: true,
+          epubImportJobs: upsertEpubImportJobInState(state.epubImportJobs, job),
+        })),
+
+      markEpubImportJobCompleted: (job) =>
+        set((state) => ({
+          activeEpubImportJobId: null,
+          epubImportJobs: upsertEpubImportJobInState(state.epubImportJobs, job),
+        })),
+
+      markEpubImportJobFailed: (id, error) =>
+        set((state) => ({
+          activeEpubImportJobId: null,
+          epubImportLastError: error,
+          epubImportJobs: state.epubImportJobs.map((job) =>
+            job.id === id
+              ? {
+                  ...job,
+                  status: 'failed',
+                  errorMessage: error,
+                }
+              : job,
+          ),
+        })),
+
+      setEpubImportQueueRunning: (epubImportQueueRunning) => set({ epubImportQueueRunning }),
+      setEpubImportLastError: (epubImportLastError) => set({ epubImportLastError }),
 
       openOfflineChapterInReader: (chapterId) =>
         set({

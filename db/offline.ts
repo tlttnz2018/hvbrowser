@@ -5,12 +5,26 @@ import { createExpoSqliteDatabase, ExpoSqliteDialect } from './expoSqliteDialect
 const DATABASE_NAME = 'hvbrowser.db';
 
 export type OfflineChapterStatus = 'queued' | 'downloading' | 'downloaded' | 'failed';
+export type OfflineStorySourceType = 'remote' | 'epub';
+export type EpubImportJobStatus =
+  | 'queued'
+  | 'extracting'
+  | 'parsing'
+  | 'importing'
+  | 'paused'
+  | 'completed'
+  | 'failed';
 
 interface OfflineStoryTable {
   id: Generated<number>;
   name: string;
   home_page_url: string | null;
   index_page_url: string | null;
+  source_type: OfflineStorySourceType;
+  author: string | null;
+  cover_image_uri: string | null;
+  source_file_name: string | null;
+  asset_root_uri: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -30,19 +44,42 @@ interface OfflineChapterTable {
   updated_at: string;
 }
 
+interface EpubImportJobTable {
+  id: Generated<number>;
+  file_name: string;
+  picked_file_uri: string;
+  source_file_uri: string | null;
+  workspace_uri: string | null;
+  story_id: number | null;
+  status: EpubImportJobStatus;
+  total_chapters: number;
+  imported_chapters: number;
+  checkpoint_chapter_index: number | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 interface OfflineDatabaseSchema {
   offline_stories: OfflineStoryTable;
   offline_chapters: OfflineChapterTable;
+  epub_import_jobs: EpubImportJobTable;
 }
 
 type OfflineStoryRow = Selectable<OfflineStoryTable>;
 type OfflineChapterRow = Selectable<OfflineChapterTable>;
+type EpubImportJobRow = Selectable<EpubImportJobTable>;
 
 export interface OfflineStoryRecord {
   id: number;
   name: string;
   homePageUrl: string | null;
   indexPageUrl: string | null;
+  sourceType: OfflineStorySourceType;
+  author: string | null;
+  coverImageUri: string | null;
+  sourceFileName: string | null;
+  assetRootUri: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -62,10 +99,32 @@ export interface OfflineChapterRecord {
   updatedAt: string;
 }
 
+export interface EpubImportJobRecord {
+  id: number;
+  fileName: string;
+  pickedFileUri: string;
+  sourceFileUri: string | null;
+  workspaceUri: string | null;
+  storyId: number | null;
+  status: EpubImportJobStatus;
+  totalChapters: number;
+  importedChapters: number;
+  checkpointChapterIndex: number | null;
+  errorMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface UpsertOfflineStoryInput {
+  id?: number;
   name: string;
   homePageUrl?: string | null;
   indexPageUrl?: string | null;
+  sourceType?: OfflineStorySourceType;
+  author?: string | null;
+  coverImageUri?: string | null;
+  sourceFileName?: string | null;
+  assetRootUri?: string | null;
 }
 
 interface SaveOfflineChapterInput {
@@ -78,6 +137,27 @@ interface SaveOfflineChapterInput {
   downloadStatus?: OfflineChapterStatus;
   downloadError?: string | null;
   downloadedAt?: string | null;
+}
+
+interface CreateEpubImportJobInput {
+  fileName: string;
+  pickedFileUri: string;
+  sourceFileUri?: string | null;
+  workspaceUri?: string | null;
+  storyId?: number | null;
+}
+
+interface UpdateEpubImportJobInput {
+  fileName?: string;
+  pickedFileUri?: string;
+  sourceFileUri?: string | null;
+  workspaceUri?: string | null;
+  storyId?: number | null;
+  status?: EpubImportJobStatus;
+  totalChapters?: number;
+  importedChapters?: number;
+  checkpointChapterIndex?: number | null;
+  errorMessage?: string | null;
 }
 
 const migrations: Record<string, Migration> = {
@@ -135,6 +215,45 @@ const migrations: Record<string, Migration> = {
       );
     },
   },
+  '002_add_epub_support': {
+    async up(db) {
+      await db.schema
+        .alterTable('offline_stories')
+        .addColumn('source_type', 'text', (col) => col.notNull().defaultTo('remote'))
+        .execute();
+      await db.schema.alterTable('offline_stories').addColumn('author', 'text').execute();
+      await db.schema.alterTable('offline_stories').addColumn('cover_image_uri', 'text').execute();
+      await db.schema.alterTable('offline_stories').addColumn('source_file_name', 'text').execute();
+      await db.schema.alterTable('offline_stories').addColumn('asset_root_uri', 'text').execute();
+
+      await db.schema
+        .createTable('epub_import_jobs')
+        .ifNotExists()
+        .addColumn('id', 'integer', (col) => col.primaryKey().autoIncrement())
+        .addColumn('file_name', 'text', (col) => col.notNull())
+        .addColumn('picked_file_uri', 'text', (col) => col.notNull())
+        .addColumn('source_file_uri', 'text')
+        .addColumn('workspace_uri', 'text')
+        .addColumn('story_id', 'integer', (col) =>
+          col.references('offline_stories.id').onDelete('set null'),
+        )
+        .addColumn('status', 'text', (col) => col.notNull().defaultTo('queued'))
+        .addColumn('total_chapters', 'integer', (col) => col.notNull().defaultTo(0))
+        .addColumn('imported_chapters', 'integer', (col) => col.notNull().defaultTo(0))
+        .addColumn('checkpoint_chapter_index', 'integer')
+        .addColumn('error_message', 'text')
+        .addColumn('created_at', 'text', (col) => col.notNull())
+        .addColumn('updated_at', 'text', (col) => col.notNull())
+        .execute();
+
+      await db.schema
+        .createIndex('idx_epub_import_jobs_status')
+        .ifNotExists()
+        .on('epub_import_jobs')
+        .column('status')
+        .execute();
+    },
+  },
 };
 
 const migrationProvider: MigrationProvider = {
@@ -151,12 +270,21 @@ const offlineDb = new Kysely<OfflineDatabaseSchema>({
 
 let initializationPromise: Promise<void> | null = null;
 
+function normalizeOfflineChapterLookupUrl(chapterUrl: string) {
+  return chapterUrl.replace(/#.*$/, '');
+}
+
 function mapOfflineStoryRow(row: OfflineStoryRow): OfflineStoryRecord {
   return {
     id: row.id,
     name: row.name,
     homePageUrl: row.home_page_url,
     indexPageUrl: row.index_page_url,
+    sourceType: row.source_type ?? 'remote',
+    author: row.author ?? null,
+    coverImageUri: row.cover_image_uri ?? null,
+    sourceFileName: row.source_file_name ?? null,
+    assetRootUri: row.asset_root_uri ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -179,16 +307,22 @@ function mapOfflineChapterRow(row: OfflineChapterRow): OfflineChapterRecord {
   };
 }
 
-async function getOfflineStoryById(id: number): Promise<OfflineStoryRecord | null> {
-  await ensureOfflineDbReady();
-
-  const row = await offlineDb
-    .selectFrom('offline_stories')
-    .selectAll()
-    .where('id', '=', id)
-    .executeTakeFirst();
-
-  return row ? mapOfflineStoryRow(row) : null;
+function mapEpubImportJobRow(row: EpubImportJobRow): EpubImportJobRecord {
+  return {
+    id: row.id,
+    fileName: row.file_name,
+    pickedFileUri: row.picked_file_uri,
+    sourceFileUri: row.source_file_uri,
+    workspaceUri: row.workspace_uri,
+    storyId: row.story_id,
+    status: row.status,
+    totalChapters: row.total_chapters,
+    importedChapters: row.imported_chapters,
+    checkpointChapterIndex: row.checkpoint_chapter_index,
+    errorMessage: row.error_message,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 export async function ensureOfflineDbReady() {
@@ -211,6 +345,18 @@ export async function ensureOfflineDbReady() {
   return initializationPromise;
 }
 
+export async function getOfflineStoryById(id: number): Promise<OfflineStoryRecord | null> {
+  await ensureOfflineDbReady();
+
+  const row = await offlineDb
+    .selectFrom('offline_stories')
+    .selectAll()
+    .where('id', '=', id)
+    .executeTakeFirst();
+
+  return row ? mapOfflineStoryRow(row) : null;
+}
+
 export async function upsertOfflineStory(
   input: UpsertOfflineStoryInput,
 ): Promise<OfflineStoryRecord> {
@@ -219,19 +365,58 @@ export async function upsertOfflineStory(
   const now = new Date().toISOString();
   const trimmedName = input.name.trim() || 'Untitled story';
 
+  if (input.id != null) {
+    const existingById = await getOfflineStoryById(input.id);
+    if (existingById) {
+      const nextValues: Record<string, unknown> = {
+        name: trimmedName || existingById.name,
+        home_page_url: input.homePageUrl ?? existingById.homePageUrl,
+        index_page_url: input.indexPageUrl ?? existingById.indexPageUrl,
+        source_type: input.sourceType ?? existingById.sourceType,
+        author: input.author !== undefined ? input.author : existingById.author,
+        cover_image_uri:
+          input.coverImageUri !== undefined ? input.coverImageUri : existingById.coverImageUri,
+        source_file_name:
+          input.sourceFileName !== undefined
+            ? input.sourceFileName
+            : existingById.sourceFileName,
+        asset_root_uri:
+          input.assetRootUri !== undefined ? input.assetRootUri : existingById.assetRootUri,
+        updated_at: now,
+      };
+
+      await offlineDb
+        .updateTable('offline_stories')
+        .set(nextValues)
+        .where('id', '=', existingById.id)
+        .execute();
+
+      return (await getOfflineStoryById(existingById.id)) as OfflineStoryRecord;
+    }
+  }
+
   const existing =
     (input.homePageUrl ? await getOfflineStoryByHomePageUrl(input.homePageUrl) : null) ||
     (input.indexPageUrl ? await getOfflineStoryByIndexPageUrl(input.indexPageUrl) : null);
 
   if (existing) {
+    const nextValues: Record<string, unknown> = {
+      name: trimmedName || existing.name,
+      home_page_url: input.homePageUrl ?? existing.homePageUrl,
+      index_page_url: input.indexPageUrl ?? existing.indexPageUrl,
+      source_type: input.sourceType ?? existing.sourceType,
+      author: input.author !== undefined ? input.author : existing.author,
+      cover_image_uri:
+        input.coverImageUri !== undefined ? input.coverImageUri : existing.coverImageUri,
+      source_file_name:
+        input.sourceFileName !== undefined ? input.sourceFileName : existing.sourceFileName,
+      asset_root_uri: input.assetRootUri !== undefined ? input.assetRootUri : existing.assetRootUri,
+      updated_at: now,
+    };
+
     await offlineDb
       .updateTable('offline_stories')
-      .set({
-        name: trimmedName || existing.name,
-        home_page_url: input.homePageUrl ?? existing.homePageUrl,
-        index_page_url: input.indexPageUrl ?? existing.indexPageUrl,
-        updated_at: now,
-      })
+      .set(nextValues)
       .where('id', '=', existing.id)
       .execute();
 
@@ -244,6 +429,11 @@ export async function upsertOfflineStory(
       name: trimmedName,
       home_page_url: input.homePageUrl ?? null,
       index_page_url: input.indexPageUrl ?? null,
+      source_type: input.sourceType ?? 'remote',
+      author: input.author ?? null,
+      cover_image_uri: input.coverImageUri ?? null,
+      source_file_name: input.sourceFileName ?? null,
+      asset_root_uri: input.assetRootUri ?? null,
       created_at: now,
       updated_at: now,
     })
@@ -286,6 +476,7 @@ export async function getOfflineStoryByChapterUrl(
 ): Promise<OfflineStoryRecord | null> {
   await ensureOfflineDbReady();
 
+  const normalizedUrl = normalizeOfflineChapterLookupUrl(chapterUrl);
   const row = await offlineDb
     .selectFrom('offline_stories')
     .innerJoin('offline_chapters', 'offline_chapters.story_id', 'offline_stories.id')
@@ -293,9 +484,14 @@ export async function getOfflineStoryByChapterUrl(
     .select('offline_stories.name')
     .select('offline_stories.home_page_url')
     .select('offline_stories.index_page_url')
+    .select('offline_stories.source_type')
+    .select('offline_stories.author')
+    .select('offline_stories.cover_image_uri')
+    .select('offline_stories.source_file_name')
+    .select('offline_stories.asset_root_uri')
     .select('offline_stories.created_at')
     .select('offline_stories.updated_at')
-    .where('offline_chapters.chapter_url', '=', chapterUrl)
+    .where('offline_chapters.chapter_url', '=', normalizedUrl)
     .executeTakeFirst();
 
   return row
@@ -304,6 +500,11 @@ export async function getOfflineStoryByChapterUrl(
         name: row.name,
         home_page_url: row.home_page_url,
         index_page_url: row.index_page_url,
+        source_type: row.source_type,
+        author: row.author,
+        cover_image_uri: row.cover_image_uri,
+        source_file_name: row.source_file_name,
+        asset_root_uri: row.asset_root_uri,
         created_at: row.created_at,
         updated_at: row.updated_at,
       })
@@ -329,7 +530,8 @@ export async function saveOfflineChapter(
   await ensureOfflineDbReady();
 
   const now = new Date().toISOString();
-  const existing = await getOfflineChapterByUrl(input.chapterUrl);
+  const normalizedChapterUrl = normalizeOfflineChapterLookupUrl(input.chapterUrl);
+  const existing = await getOfflineChapterByUrl(normalizedChapterUrl);
   const originalHtml = input.originalHtml ?? existing?.originalHtml ?? '';
   const convertedHvHtml = input.convertedHvHtml ?? existing?.convertedHvHtml ?? '';
   const downloadStatus = input.downloadStatus ?? existing?.downloadStatus ?? 'queued';
@@ -342,7 +544,7 @@ export async function saveOfflineChapter(
     .values({
       story_id: input.storyId,
       chapter_name: input.chapterName,
-      chapter_url: input.chapterUrl,
+      chapter_url: normalizedChapterUrl,
       chapter_order: input.chapterOrder ?? null,
       original_html: originalHtml,
       converted_hv_html: convertedHvHtml,
@@ -367,7 +569,7 @@ export async function saveOfflineChapter(
     )
     .execute();
 
-  return (await getOfflineChapterByUrl(input.chapterUrl)) as OfflineChapterRecord;
+  return (await getOfflineChapterByUrl(normalizedChapterUrl)) as OfflineChapterRecord;
 }
 
 export async function listOfflineChapters(): Promise<OfflineChapterRecord[]> {
@@ -402,10 +604,11 @@ export async function getOfflineChapterByUrl(
 ): Promise<OfflineChapterRecord | null> {
   await ensureOfflineDbReady();
 
+  const normalizedUrl = normalizeOfflineChapterLookupUrl(chapterUrl);
   const row = await offlineDb
     .selectFrom('offline_chapters')
     .selectAll()
-    .where('chapter_url', '=', chapterUrl)
+    .where('chapter_url', '=', normalizedUrl)
     .executeTakeFirst();
 
   return row ? mapOfflineChapterRow(row) : null;
@@ -434,20 +637,24 @@ export async function updateOfflineChapterStatus(
   await ensureOfflineDbReady();
 
   const now = new Date().toISOString();
+  const nextValues: Record<string, unknown> = {
+    download_status: status,
+    download_error: error ?? null,
+    downloaded_at: payload?.downloadedAt ?? (status === 'downloaded' ? now : null),
+    updated_at: now,
+  };
 
-  await offlineDb
-    .updateTable('offline_chapters')
-    .set({
-      chapter_name: payload?.chapterName,
-      original_html: payload?.originalHtml,
-      converted_hv_html: payload?.convertedHvHtml,
-      download_status: status,
-      download_error: error ?? null,
-      downloaded_at: payload?.downloadedAt ?? (status === 'downloaded' ? now : null),
-      updated_at: now,
-    })
-    .where('id', '=', id)
-    .execute();
+  if (payload?.chapterName !== undefined) {
+    nextValues.chapter_name = payload.chapterName;
+  }
+  if (payload?.originalHtml !== undefined) {
+    nextValues.original_html = payload.originalHtml;
+  }
+  if (payload?.convertedHvHtml !== undefined) {
+    nextValues.converted_hv_html = payload.convertedHvHtml;
+  }
+
+  await offlineDb.updateTable('offline_chapters').set(nextValues).where('id', '=', id).execute();
 
   return getOfflineChapterById(id);
 }
@@ -486,6 +693,105 @@ export async function attachIndexPageToStory(
     .execute();
 
   return getOfflineStoryById(storyId);
+}
+
+export async function createEpubImportJob(
+  input: CreateEpubImportJobInput,
+): Promise<EpubImportJobRecord> {
+  await ensureOfflineDbReady();
+
+  const now = new Date().toISOString();
+  const inserted = await offlineDb
+    .insertInto('epub_import_jobs')
+    .values({
+      file_name: input.fileName,
+      picked_file_uri: input.pickedFileUri,
+      source_file_uri: input.sourceFileUri ?? null,
+      workspace_uri: input.workspaceUri ?? null,
+      story_id: input.storyId ?? null,
+      status: 'queued',
+      total_chapters: 0,
+      imported_chapters: 0,
+      checkpoint_chapter_index: null,
+      error_message: null,
+      created_at: now,
+      updated_at: now,
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+
+  return mapEpubImportJobRow(inserted);
+}
+
+export async function getEpubImportJobById(id: number): Promise<EpubImportJobRecord | null> {
+  await ensureOfflineDbReady();
+
+  const row = await offlineDb
+    .selectFrom('epub_import_jobs')
+    .selectAll()
+    .where('id', '=', id)
+    .executeTakeFirst();
+
+  return row ? mapEpubImportJobRow(row) : null;
+}
+
+export async function listEpubImportJobs(): Promise<EpubImportJobRecord[]> {
+  await ensureOfflineDbReady();
+
+  const rows = await offlineDb
+    .selectFrom('epub_import_jobs')
+    .selectAll()
+    .orderBy('created_at', 'desc')
+    .execute();
+
+  return rows.map(mapEpubImportJobRow);
+}
+
+export async function listPendingEpubImportJobs(): Promise<EpubImportJobRecord[]> {
+  await ensureOfflineDbReady();
+
+  const rows = await offlineDb
+    .selectFrom('epub_import_jobs')
+    .selectAll()
+    .where('status', 'in', ['queued', 'extracting', 'parsing', 'importing', 'paused'])
+    .orderBy('created_at', 'asc')
+    .execute();
+
+  return rows.map(mapEpubImportJobRow);
+}
+
+export async function updateEpubImportJob(
+  id: number,
+  input: UpdateEpubImportJobInput,
+): Promise<EpubImportJobRecord | null> {
+  await ensureOfflineDbReady();
+
+  const nextValues: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if (input.fileName !== undefined) nextValues.file_name = input.fileName;
+  if (input.pickedFileUri !== undefined) nextValues.picked_file_uri = input.pickedFileUri;
+  if (input.sourceFileUri !== undefined) nextValues.source_file_uri = input.sourceFileUri;
+  if (input.workspaceUri !== undefined) nextValues.workspace_uri = input.workspaceUri;
+  if (input.storyId !== undefined) nextValues.story_id = input.storyId;
+  if (input.status !== undefined) nextValues.status = input.status;
+  if (input.totalChapters !== undefined) nextValues.total_chapters = input.totalChapters;
+  if (input.importedChapters !== undefined) nextValues.imported_chapters = input.importedChapters;
+  if (input.checkpointChapterIndex !== undefined) {
+    nextValues.checkpoint_chapter_index = input.checkpointChapterIndex;
+  }
+  if (input.errorMessage !== undefined) nextValues.error_message = input.errorMessage;
+
+  await offlineDb.updateTable('epub_import_jobs').set(nextValues).where('id', '=', id).execute();
+
+  return getEpubImportJobById(id);
+}
+
+export async function deleteEpubImportJob(id: number): Promise<void> {
+  await ensureOfflineDbReady();
+
+  await offlineDb.deleteFrom('epub_import_jobs').where('id', '=', id).execute();
 }
 
 export async function deleteOfflineStory(id: number): Promise<void> {

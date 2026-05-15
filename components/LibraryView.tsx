@@ -19,6 +19,7 @@ import { usePageLoader } from '../hooks/usePageLoader';
 import { useAppStore } from '../stores/useAppStore';
 import { absoluteFill, Theme, useTheme } from '../theme';
 import { getBookmarkFavicon, getBookmarkImage } from '../utils/bookmarks';
+import { removeEpubImportJobWithArtifacts, retryEpubImportJob } from '../utils/epub-import-queue';
 import BookmarkList, { SiteItem } from './BookmarkList';
 import SegmentedControl from './buttons/SegmentedControl';
 import OfflineLibraryList from './OfflineLibraryList';
@@ -176,7 +177,7 @@ function PopupMenu<T extends string>({
 }
 
 export default function LibraryView({ onDismiss }: LibraryViewProps) {
-  const { loadPage, loadOfflineChapter } = usePageLoader();
+  const { importEpub, loadPage, loadOfflineChapter } = usePageLoader();
   const theme = useTheme();
   const styles = createStyles(theme);
   const bookmarks = useAppStore((s) => s.bookmarks);
@@ -188,13 +189,14 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
   const refreshOfflineLibrary = useAppStore((s) => s.refreshOfflineLibrary);
   const offlineStories = useAppStore((s) => s.offlineStories);
   const offlineChaptersByStory = useAppStore((s) => s.offlineChaptersByStory);
+  const epubImportJobs = useAppStore((s) => s.epubImportJobs);
   const activeDownloadId = useAppStore((s) => s.activeDownloadId);
   const downloadQueue = useAppStore((s) => s.downloadQueue);
   const downloadQueueLastError = useAppStore((s) => s.downloadQueueLastError);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterKey, setFilterKey] = useState<FilterKey>('all');
-  const [sortKey, setSortKey] = useState<SortKey>('title');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [sortKey, setSortKey] = useState<SortKey>('recent');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [libraryTab, setLibraryTab] = useState<LibraryTabKey>('library');
   const [openMenu, setOpenMenu] = useState<'filter' | 'sort' | null>(null);
   const [bookmarkTransferBusy, setBookmarkTransferBusy] = useState<'import' | 'export' | null>(
@@ -461,7 +463,7 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
                         }
                       />
                     }
-                    accessibilityLabel={`Sort: ${SORT_OPTIONS.find((option) => option.key === sortKey)?.label || 'Title'} ${sortDirection === 'asc' ? 'ascending' : 'descending'}`}
+                    accessibilityLabel={`Sort: ${SORT_OPTIONS.find((option) => option.key === sortKey)?.label || 'Recent'} ${sortDirection === 'asc' ? 'ascending' : 'descending'}`}
                     open={openMenu === 'sort'}
                     onPress={() =>
                       openMenu === 'sort' ? closeMenu() : openAnchoredMenu('sort', sortButtonRef)
@@ -540,6 +542,29 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
           </View>
         </>
       )}
+
+      {libraryTab === 'offline' && (
+        <View style={styles.sectionHeader}>
+          <View style={styles.sectionHeaderTopRow}>
+            <Text style={styles.sectionTitle}>Offline Library</Text>
+            <View style={styles.transferActions}>
+              <Pressable
+                accessibilityLabel="Import EPUB file"
+                onPress={() => {
+                  void importEpub();
+                }}
+                style={styles.transferButton}
+              >
+                <FontAwesome6 name="book-open-reader" size={12} color={theme.colors.textAccent} />
+                <Text style={styles.transferButtonText}>Import EPUB</Text>
+              </Pressable>
+            </View>
+          </View>
+          <Text style={styles.sectionCaption}>
+            EPUB imports run in the background queue while you keep reading online or offline.
+          </Text>
+        </View>
+      )}
     </Pressable>
   );
 
@@ -567,14 +592,28 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
           <OfflineLibraryList
             stories={offlineStories}
             chaptersByStory={offlineChaptersByStory}
+            importJobs={epubImportJobs}
             activeDownloadId={activeDownloadId}
             queueCount={downloadQueue.length}
             lastError={downloadQueueLastError}
+            onRetryImportJob={async (jobId) => {
+              await retryEpubImportJob(jobId);
+            }}
+            onRemoveImportJob={async (jobId) => {
+              await removeEpubImportJobWithArtifacts(jobId);
+            }}
             onRemoveChapter={async (chapterId) => {
               await deleteOfflineChapter(chapterId);
               await refreshOfflineLibrary();
             }}
             onRemoveStory={async (storyId) => {
+              const story = offlineStories.find((entry) => entry.id === storyId) ?? null;
+              if (story?.assetRootUri) {
+                const assetDirectory = new Directory(story.assetRootUri);
+                if (assetDirectory.exists) {
+                  assetDirectory.delete();
+                }
+              }
               await deleteOfflineStory(storyId);
               await refreshOfflineLibrary();
             }}

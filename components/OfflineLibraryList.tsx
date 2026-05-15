@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { OfflineChapterRecord, OfflineStoryRecord } from '../db/offline';
+import type { EpubImportJobRecord, OfflineChapterRecord, OfflineStoryRecord } from '../db/offline';
 import { absoluteFill, Theme, useTheme } from '../theme';
 
 type OfflineViewMode = 'grouped' | 'chapters';
@@ -26,9 +26,12 @@ type StoryOverlayKind = 'filter' | null;
 interface OfflineLibraryListProps {
   stories: OfflineStoryRecord[];
   chaptersByStory: Record<number, OfflineChapterRecord[]>;
+  importJobs: EpubImportJobRecord[];
   activeDownloadId: number | null;
   queueCount: number;
   lastError: string | null;
+  onRetryImportJob: (jobId: number) => Promise<void>;
+  onRemoveImportJob: (jobId: number) => Promise<void>;
   onOpenChapter: (chapterId: number) => void;
   onRemoveChapter: (chapterId: number) => Promise<void>;
   onRemoveStory: (storyId: number) => Promise<void>;
@@ -222,9 +225,12 @@ function CompactSheet({
 export default function OfflineLibraryList({
   stories,
   chaptersByStory,
+  importJobs,
   activeDownloadId,
   queueCount,
   lastError,
+  onRetryImportJob,
+  onRemoveImportJob,
   onOpenChapter,
   onRemoveChapter,
   onRemoveStory,
@@ -242,6 +248,10 @@ export default function OfflineLibraryList({
   const [storyOverlayKind, setStoryOverlayKind] = useState<StoryOverlayKind>(null);
   const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
   const [storySearchQuery, setStorySearchQuery] = useState('');
+  const importJobsVisible = importJobs.filter(
+    (job) =>
+      job.status !== 'completed' || !!job.errorMessage || job.importedChapters < job.totalChapters,
+  );
 
   const summaryLabel = useMemo(() => {
     if (activeDownloadId) {
@@ -402,6 +412,88 @@ export default function OfflineLibraryList({
     setStoryOverlayKind(null);
   };
 
+  const listHeader = (
+    <View style={styles.topBar}>
+      {importJobsVisible.length > 0 && (
+        <View style={styles.importJobList}>
+          {importJobsVisible.map((job) => (
+            <View key={job.id} style={styles.importJobCard}>
+              <View style={styles.importJobTopRow}>
+                <Text numberOfLines={1} style={styles.importJobTitle}>
+                  {job.fileName}
+                </Text>
+                <Text style={styles.importJobStatus}>{job.status}</Text>
+              </View>
+              <Text style={styles.importJobMeta}>
+                {job.totalChapters > 0
+                  ? `${job.importedChapters}/${job.totalChapters} chapters imported`
+                  : 'Preparing EPUB import'}
+              </Text>
+              {!!job.errorMessage && <Text style={styles.importJobError}>{job.errorMessage}</Text>}
+              <View style={styles.importJobActions}>
+                {job.status === 'failed' && (
+                  <>
+                    <Pressable
+                      onPress={() => {
+                        void onRetryImportJob(job.id);
+                      }}
+                      style={styles.importJobAction}
+                    >
+                      <Text style={styles.importJobActionLabel}>Retry</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        void onRemoveImportJob(job.id);
+                      }}
+                      style={styles.importJobAction}
+                    >
+                      <Text style={styles.importJobActionLabel}>Remove</Text>
+                    </Pressable>
+                  </>
+                )}
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+      <View style={styles.searchWrap}>
+        <TextInput
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder={viewMode === 'grouped' ? 'Search stories or chapters' : 'Search all chapters'}
+          placeholderTextColor={theme.colors.inputPlaceholder}
+          style={styles.searchInput}
+        />
+        {!!searchQuery && (
+          <Pressable
+            accessibilityLabel="Clear search"
+            onPress={() => setSearchQuery('')}
+            style={styles.clearButton}
+          >
+            <FontAwesome6 name="xmark" size={12} color={theme.colors.textAccent} />
+          </Pressable>
+        )}
+      </View>
+      <View style={styles.toolbarButtonRow}>
+        <Pressable onPress={() => setOverlayKind('mode')} style={styles.toolbarButton}>
+          <Text style={styles.toolbarButtonLabel}>{viewMode === 'grouped' ? 'Stories' : 'All'}</Text>
+        </Pressable>
+        <Pressable onPress={() => setOverlayKind('filter')} style={styles.toolbarButton}>
+          <Text style={styles.toolbarButtonLabel}>{filterKey === 'all' ? 'Filter' : 'Status'}</Text>
+        </Pressable>
+        <Pressable onPress={() => setOverlayKind('jump')} style={styles.toolbarButton}>
+          <Text style={styles.toolbarButtonLabel}>Jump</Text>
+        </Pressable>
+      </View>
+      <Text style={styles.compactMeta}>
+        {viewMode === 'grouped' ? `${storyRows.length} stories` : `${chapterRows.length} chapters`}{' '}
+        • {summaryLabel}
+        {activeDownloadId ? ' • 1 active' : ''}
+        {!!lastError ? ' • last run failed' : ''}
+      </Text>
+    </View>
+  );
+
   const renderStoryRow = ({ item }: { item: StoryRow }) => {
     const { story, chapterCount, downloadedCount, failedCount, queuedCount } = item;
 
@@ -515,58 +607,13 @@ export default function OfflineLibraryList({
 
   return (
     <View style={styles.container}>
-      <View style={styles.topBar}>
-        <View style={styles.searchWrap}>
-          <TextInput
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder={
-              viewMode === 'grouped' ? 'Search stories or chapters' : 'Search all chapters'
-            }
-            placeholderTextColor={theme.colors.inputPlaceholder}
-            style={styles.searchInput}
-          />
-          {!!searchQuery && (
-            <Pressable
-              accessibilityLabel="Clear search"
-              onPress={() => setSearchQuery('')}
-              style={styles.clearButton}
-            >
-              <FontAwesome6 name="xmark" size={12} color={theme.colors.textAccent} />
-            </Pressable>
-          )}
-        </View>
-        <View style={styles.toolbarButtonRow}>
-          <Pressable onPress={() => setOverlayKind('mode')} style={styles.toolbarButton}>
-            <Text style={styles.toolbarButtonLabel}>
-              {viewMode === 'grouped' ? 'Stories' : 'All'}
-            </Text>
-          </Pressable>
-          <Pressable onPress={() => setOverlayKind('filter')} style={styles.toolbarButton}>
-            <Text style={styles.toolbarButtonLabel}>
-              {filterKey === 'all' ? 'Filter' : 'Status'}
-            </Text>
-          </Pressable>
-          <Pressable onPress={() => setOverlayKind('jump')} style={styles.toolbarButton}>
-            <Text style={styles.toolbarButtonLabel}>Jump</Text>
-          </Pressable>
-        </View>
-        <Text style={styles.compactMeta}>
-          {viewMode === 'grouped'
-            ? `${storyRows.length} stories`
-            : `${chapterRows.length} chapters`}{' '}
-          • {summaryLabel}
-          {activeDownloadId ? ' • 1 active' : ''}
-          {!!lastError ? ' • last run failed' : ''}
-        </Text>
-      </View>
-
       {viewMode === 'grouped' ? (
         <FlatList
           ref={storyListRef}
           data={storyRows}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.content}
+          ListHeaderComponent={listHeader}
           initialNumToRender={18}
           maxToRenderPerBatch={24}
           removeClippedSubviews
@@ -597,6 +644,7 @@ export default function OfflineLibraryList({
           data={chapterRows}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.content}
+          ListHeaderComponent={listHeader}
           initialNumToRender={20}
           maxToRenderPerBatch={28}
           removeClippedSubviews
@@ -841,6 +889,60 @@ const createStyles = (theme: Theme) =>
     },
     topBar: {
       paddingBottom: theme.spacing.sm,
+    },
+    importJobList: {
+      marginBottom: theme.spacing.sm,
+      gap: theme.spacing.sm,
+    },
+    importJobCard: {
+      borderRadius: theme.radius.xl,
+      backgroundColor: theme.colors.surface,
+      borderWidth: 1,
+      borderColor: theme.colors.borderMuted,
+      padding: theme.spacing.md,
+    },
+    importJobTopRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: theme.spacing.sm,
+    },
+    importJobTitle: {
+      flex: 1,
+      ...theme.typography.bodyStrong,
+      color: theme.colors.text,
+    },
+    importJobStatus: {
+      ...theme.typography.caption,
+      textTransform: 'uppercase',
+      color: theme.colors.textAccent,
+    },
+    importJobMeta: {
+      marginTop: theme.spacing.xs,
+      ...theme.typography.caption,
+      color: theme.colors.textMuted,
+    },
+    importJobError: {
+      marginTop: theme.spacing.xs,
+      ...theme.typography.caption,
+      color: theme.colors.surfaceDanger,
+    },
+    importJobActions: {
+      flexDirection: 'row',
+      marginTop: theme.spacing.sm,
+      gap: theme.spacing.sm,
+    },
+    importJobAction: {
+      borderRadius: theme.radius.full,
+      backgroundColor: theme.colors.inputBackground,
+      borderWidth: 1,
+      borderColor: theme.colors.inputBorder,
+      paddingHorizontal: theme.spacing.md,
+      paddingVertical: theme.spacing.xs,
+    },
+    importJobActionLabel: {
+      ...theme.typography.caption,
+      color: theme.colors.textAccent,
     },
     searchWrap: {
       position: 'relative',

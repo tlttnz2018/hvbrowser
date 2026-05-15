@@ -119,6 +119,29 @@ export function stripPresentationHtml(
   return injectIntoHead(output, buildReaderStyle(fontSize, readerTheme));
 }
 
+export function normalizeEpubFullSiteHtml(
+  html: string,
+  readerTheme: Theme['reader'],
+  baseFontSizePx = 14,
+): string {
+  if (!html) {
+    return html;
+  }
+
+  const injected = [
+    '<style>',
+    `html, body { margin: 0 !important; padding: 0 !important; background: ${readerTheme.background} !important; color: ${readerTheme.text} !important; }`,
+    `body { padding: 16px 14px 24px !important; font-size: ${baseFontSizePx}px !important; line-height: 1.75 !important; word-break: break-word !important; }`,
+    `body, body * { font-size: ${baseFontSizePx}px !important; line-height: 1.75 !important; }`,
+    '* { max-width: 100% !important; box-sizing: border-box !important; }',
+    'img, svg, video, canvas { max-width: 100% !important; height: auto !important; }',
+    `a { color: ${readerTheme.link} !important; }`,
+    '</style>',
+  ].join('');
+
+  return injectIntoHead(html, injected);
+}
+
 function buildTooltipEnhancements(readerTheme: Theme['reader']): string {
   return [
     '<style>',

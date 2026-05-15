@@ -26,6 +26,8 @@
     "expo-sqlite": "~16.0.10",
     "expo-status-bar": "~3.0.9",
     "expo-updates": "~29.0.16",
+    "fast-xml-parser": "^5.8.0",
+    "fflate": "^0.8.2",
     "htmlparser2": "^9.1.0",
     "iconv-lite": "^0.6.3",
     "kysely": "https://pkg.pr.new/kysely-org/kysely@1452",

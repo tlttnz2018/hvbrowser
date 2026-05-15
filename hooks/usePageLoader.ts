@@ -1,30 +1,42 @@
 import { useCallback } from 'react';
 
-import { getOfflineChapterById } from '../db/offline';
+import { getOfflineChapterById, updateOfflineChapterStatus } from '../db/offline';
 import { useAppStore } from '../stores/useAppStore';
 import { useWebPageStore } from '../stores/useWebPageStore';
 import { cleanupHtml } from '../utils/cleanup';
 import { convertHtmlPageToHV, downloadHtmlPage, extractHtmlTitle } from '../utils/downloader';
+import { queueEpubImportFromPicker } from '../utils/epub-import-queue';
 import { fixUrl } from '../utils/normalize-url';
 import { injectBaseHref } from '../utils/webview-html';
 
+interface LoadPageOptions {
+  skipHistory?: boolean;
+}
+
+interface LoadOfflineChapterOptions extends LoadPageOptions {
+  anchor?: string | null;
+}
+
 export function usePageLoader() {
   const {
+    pushCurrentHistory,
+    refreshOfflineLibrary,
     setLoading,
     setLoadingStage,
     setError,
     setHtmlContent,
     setCurrentUrl,
+    setPendingContentAnchor,
     setWebPageTitle,
     setLastViewUrl,
-    pushHistory,
     markBookmarkVisited,
     setCurrentContentSource,
   } = useAppStore();
+  const setFullSite = useWebPageStore((s) => s.setFullSite);
   const setUrlInputFocus = useWebPageStore((s) => s.setUrlInputFocus);
 
   const loadPage = useCallback(
-    async (rawUrl: string) => {
+    async (rawUrl: string, options?: LoadPageOptions) => {
       if (!rawUrl) return;
       if (
         rawUrl.indexOf('about') !== -1 ||
@@ -37,8 +49,11 @@ export function usePageLoader() {
       const currentUrl = useAppStore.getState().currentUrl;
       const url = fixUrl(currentUrl, rawUrl);
 
-      pushHistory(url);
+      if (!options?.skipHistory) {
+        pushCurrentHistory();
+      }
       setUrlInputFocus(false);
+      setPendingContentAnchor(null);
       setCurrentContentSource('remote');
       setHtmlContent('', '');
       setCurrentUrl(url);
@@ -73,14 +88,15 @@ export function usePageLoader() {
       }
     },
     [
+      pushCurrentHistory,
       setLoading,
       setLoadingStage,
       setError,
       setHtmlContent,
       setCurrentUrl,
+      setPendingContentAnchor,
       setWebPageTitle,
       setLastViewUrl,
-      pushHistory,
       markBookmarkVisited,
       setCurrentContentSource,
       setUrlInputFocus,
@@ -88,24 +104,56 @@ export function usePageLoader() {
   );
 
   const loadOfflineChapter = useCallback(
-    async (chapterId: number) => {
+    async (chapterId: number, options?: LoadOfflineChapterOptions) => {
       const chapter = await getOfflineChapterById(chapterId);
       if (!chapter) {
         setError(true);
         return;
       }
+      const currentState = useAppStore.getState();
+      const openingEpubChapter = chapter.chapterUrl.startsWith('epub://');
+      const alreadyInEpubSession =
+        currentState.currentContentSource === 'offline' &&
+        currentState.currentUrl.startsWith('epub://');
+
+      if (!options?.skipHistory) {
+        pushCurrentHistory();
+      }
+
+      if (openingEpubChapter && !alreadyInEpubSession) {
+        setFullSite(false);
+      }
 
       setUrlInputFocus(false);
       setLoading(true);
-      setLoadingStage('rendering');
+      setLoadingStage(chapter.convertedHvHtml ? 'rendering' : 'converting');
       setError(false);
+      setPendingContentAnchor(options?.anchor ?? null);
       setCurrentContentSource('offline', chapter.id);
       setHtmlContent('', '');
       setCurrentUrl(chapter.chapterUrl);
 
       try {
-        const htmlOrig = injectBaseHref(chapter.originalHtml, chapter.chapterUrl);
-        const htmlHv = injectBaseHref(chapter.convertedHvHtml, chapter.chapterUrl);
+        const dictionary = useAppStore.getState().dictionary;
+        const originalHtml = chapter.originalHtml;
+        let convertedHtml = chapter.convertedHvHtml;
+
+        if (!convertedHtml) {
+          const cleanedOriginalHtml = (await cleanupHtml(originalHtml)) || originalHtml;
+          convertedHtml = await convertHtmlPageToHV(cleanedOriginalHtml, dictionary);
+          const updatedChapter = await updateOfflineChapterStatus(chapter.id, 'downloaded', null, {
+            convertedHvHtml: convertedHtml,
+            downloadedAt: chapter.downloadedAt ?? new Date().toISOString(),
+          });
+
+          if (updatedChapter) {
+            await refreshOfflineLibrary();
+          }
+          setLoadingStage('rendering');
+        }
+
+        const htmlOrig = injectBaseHref(originalHtml, chapter.chapterUrl);
+        const htmlHv = injectBaseHref(convertedHtml, chapter.chapterUrl);
 
         setWebPageTitle(chapter.chapterName);
         setLastViewUrl(chapter.chapterUrl);
@@ -118,6 +166,8 @@ export function usePageLoader() {
       }
     },
     [
+      pushCurrentHistory,
+      refreshOfflineLibrary,
       setCurrentContentSource,
       setCurrentUrl,
       setError,
@@ -125,10 +175,16 @@ export function usePageLoader() {
       setLastViewUrl,
       setLoading,
       setLoadingStage,
+      setPendingContentAnchor,
       setUrlInputFocus,
+      setFullSite,
       setWebPageTitle,
     ],
   );
 
-  return { loadPage, loadOfflineChapter };
+  const importEpub = useCallback(async () => {
+    await queueEpubImportFromPicker();
+  }, []);
+
+  return { importEpub, loadPage, loadOfflineChapter };
 }

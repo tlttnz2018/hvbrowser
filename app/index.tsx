@@ -8,6 +8,7 @@ import { useWebPageStore } from '../stores/useWebPageStore';
 import { absoluteFill, Theme, useTheme } from '../theme';
 import { extractBaseUrl } from '../utils/normalize-url';
 import {
+  normalizeEpubFullSiteHtml,
   stripPresentationHtmlWithChineseTooltips,
   stripPresentationHtmlWithHvTooltips,
 } from '../utils/webview-html';
@@ -91,11 +92,14 @@ export default function IndexScreen() {
   const htmlHV = useAppStore((s) => s.htmlHV);
   const currentUrl = useAppStore((s) => s.currentUrl);
   const currentContentSource = useAppStore((s) => s.currentContentSource);
+  const pendingContentAnchor = useAppStore((s) => s.pendingContentAnchor);
   const getOfflineChapterByUrlFromState = useAppStore((s) => s.getOfflineChapterByUrlFromState);
+  const currentOfflineStory = useAppStore((s) => s.getCurrentOfflineStoryFromState());
   const dictionary = useAppStore((s) => s.dictionary);
   const pinyinDictionary = useAppStore((s) => s.pinyinDictionary);
   const setLoading = useAppStore((s) => s.setLoading);
   const setLoadingStage = useAppStore((s) => s.setLoadingStage);
+  const setPendingContentAnchor = useAppStore((s) => s.setPendingContentAnchor);
 
   const isHV = useWebPageStore((s) => s.isHV);
   const fullSite = useWebPageStore((s) => s.fullSite);
@@ -108,10 +112,23 @@ export default function IndexScreen() {
       return;
     }
 
+    if (pendingContentAnchor) {
+      pendingReaderRestoreUrlRef.current = null;
+      return;
+    }
+
     const scrollRatio = readerScrollPositionsRef.current[currentUrl];
     pendingReaderRestoreUrlRef.current =
       scrollRatio != null && Number.isFinite(scrollRatio) ? currentUrl : null;
-  }, [currentUrl, currentContentSource, fontSize, fullSite, isHV, theme.mode]);
+  }, [
+    currentUrl,
+    currentContentSource,
+    fontSize,
+    fullSite,
+    isHV,
+    pendingContentAnchor,
+    theme.mode,
+  ]);
 
   useEffect(() => {
     if (webViewRef.current && fullSite) {
@@ -231,7 +248,9 @@ export default function IndexScreen() {
         const offlineChapter = getOfflineChapterByUrlFromState(payload.url);
 
         if (offlineChapter) {
-          loadOfflineChapter(offlineChapter.id);
+          loadOfflineChapter(offlineChapter.id, {
+            anchor: payload.url.includes('#') ? payload.url.slice(payload.url.indexOf('#')) : null,
+          });
         } else {
           loadPage(payload.url);
         }
@@ -281,8 +300,11 @@ export default function IndexScreen() {
 
   const activeHtml = isHV ? htmlHV : htmlOrig;
   const hasHtml = !!activeHtml;
+  const isCurrentEpub = currentOfflineStory?.sourceType === 'epub';
   const htmlSource = fullSite
-    ? activeHtml
+    ? isCurrentEpub
+      ? normalizeEpubFullSiteHtml(activeHtml, theme.reader)
+      : activeHtml
     : isHV
       ? stripPresentationHtmlWithHvTooltips(
           htmlOrig,
@@ -298,7 +320,8 @@ export default function IndexScreen() {
           pinyinDictionary,
           theme.reader,
         );
-  const baseUrl = currentUrl ? extractBaseUrl(currentUrl) : undefined;
+  const baseUrl =
+    currentUrl && /^(https?:|file:)/i.test(currentUrl) ? extractBaseUrl(currentUrl) : undefined;
   const restoreReaderScrollPosition = useCallback(() => {
     if (!webViewRef.current || fullSite || !currentUrl) {
       return;
@@ -330,6 +353,27 @@ export default function IndexScreen() {
     webViewRef.current.injectJavaScript(restoreScript);
   }, [currentUrl, fullSite]);
 
+  const restorePendingAnchor = useCallback(() => {
+    if (!webViewRef.current || !pendingContentAnchor) {
+      return;
+    }
+
+    const anchorValue = pendingContentAnchor.replace(/^#/, '');
+    const anchorScript = `
+      (function() {
+        var targetId = ${JSON.stringify(anchorValue)};
+        var anchor = document.getElementById(targetId) || document.getElementsByName(targetId)[0];
+        if (anchor && typeof anchor.scrollIntoView === 'function') {
+          anchor.scrollIntoView({ block: 'start' });
+        }
+        return true;
+      })();
+    `;
+
+    webViewRef.current.injectJavaScript(anchorScript);
+    setPendingContentAnchor(null);
+  }, [pendingContentAnchor, setPendingContentAnchor]);
+
   const loadingLabel =
     loadingStage === 'downloading'
       ? 'Downloading page'
@@ -346,9 +390,13 @@ export default function IndexScreen() {
   }, [loading, setLoadingStage]);
 
   const handleLoadEnd = useCallback(() => {
-    restoreReaderScrollPosition();
+    if (pendingContentAnchor) {
+      restorePendingAnchor();
+    } else {
+      restoreReaderScrollPosition();
+    }
     setLoading(false);
-  }, [restoreReaderScrollPosition, setLoading]);
+  }, [pendingContentAnchor, restorePendingAnchor, restoreReaderScrollPosition, setLoading]);
 
   return (
     <View style={styles.screen}>
