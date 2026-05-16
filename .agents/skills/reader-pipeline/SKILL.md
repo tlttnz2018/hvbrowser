@@ -39,6 +39,7 @@ Read these only if needed:
 - Reader mode and full-site mode share the same `WebView` surface but differ in HTML shaping and behavior.
 - `epub://...` URLs are synthetic offline chapter identities. Bookmarks, back navigation, and link taps must resolve them through offline chapter lookup before any remote `loadPage` path continues.
 - EPUB chapters may start with only `originalHtml`; Han-Viet HTML can be generated lazily on first open.
+- Offline chapter resume state comes from persisted `lastOpenedAt`, not from whichever chapter the UI last highlighted in memory.
 
 ## Common Failure Modes
 
@@ -48,6 +49,7 @@ Read these only if needed:
 - A fix updates only `htmlOrig` or only `htmlHV`.
 - A loading boolean grows ambiguous; use a stage enum if the UI needs real progress states.
 - EPUB bookmarks or cross-chapter links open the wrong content because a synthetic `epub://...` URL was treated like a remote URL.
+- Resume UI drifts between the in-reader TOC and the offline library because one side used transient session state instead of persisted chapter-open timestamps.
 
 ## Change Strategy
 

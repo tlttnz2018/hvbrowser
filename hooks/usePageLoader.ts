@@ -3,6 +3,7 @@ import { useCallback } from 'react';
 import {
   getOfflineChapterById,
   getOfflineChapterByUrl,
+  markOfflineChapterOpened,
   updateOfflineChapterStatus,
 } from '../db/offline';
 import { useAppStore } from '../stores/useAppStore';
@@ -25,6 +26,7 @@ export function usePageLoader() {
   const {
     pushCurrentHistory,
     refreshOfflineLibrary,
+    markOfflineChapterOpened: markOfflineChapterOpenedInState,
     setLoading,
     setLoadingStage,
     setError,
@@ -99,10 +101,14 @@ export function usePageLoader() {
 
         const htmlOrig = injectBaseHref(originalHtml, chapter.chapterUrl);
         const htmlHv = injectBaseHref(convertedHtml, chapter.chapterUrl);
+        const openedChapter = await markOfflineChapterOpened(chapter.id);
 
         setWebPageTitle(chapter.chapterName);
         setLastViewUrl(chapter.chapterUrl);
         setHtmlContent('\ufeff' + htmlOrig, '\ufeff' + htmlHv);
+        if (openedChapter) {
+          markOfflineChapterOpenedInState(openedChapter);
+        }
         setError(false);
       } catch (error) {
         console.error('Offline page load error:', error);
@@ -113,6 +119,7 @@ export function usePageLoader() {
     [
       pushCurrentHistory,
       refreshOfflineLibrary,
+      markOfflineChapterOpenedInState,
       setCurrentContentSource,
       setCurrentUrl,
       setError,

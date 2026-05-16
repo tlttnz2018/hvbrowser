@@ -12,6 +12,8 @@
 - EPUB chapters are stored as normal offline chapters with synthetic `epub://story/<id>/chapter/<n>` URLs and lazy `convertedHvHtml` generation.
 - Any `epub://...` open path, including bookmarks and history restores, must resolve through offline chapter lookup before remote loading.
 - Library tabs now share the same mobile behavior: the hero/info area scrolls away, while the tab row and tab-specific search/filter controls stay sticky.
+- Offline chapters now persist `lastOpenedAt`; use that durable field for resume behavior instead of transient UI state.
+- The in-reader TOC stays focused on `All` / `Current`, while the offline library book browser uses `Last` as a one-chapter resume view.
 - Offline library backups now use a single streaming ZIP archive to keep RAM and temp-disk use bounded on mobile devices.
 - Backup restore merges remote stories by sanitized story URL, and merges EPUB stories by metadata-first matching with filename fallback/tiebreaker.
 - Backups store chapter `originalHtml` only; restored chapters regenerate `convertedHvHtml` lazily through the reader path.
@@ -107,6 +109,7 @@ For stable architectural decisions, prefer the ADR file over growing this sectio
 
 - Offline records live in the same SQLite DB file as bookmarks, but in separate Kysely schemas/modules.
 - Chapter URLs are unique in `offline_chapters`. Re-queue logic depends on that uniqueness.
+- Offline chapter resume state is stored durably per chapter via `lastOpenedAt`.
 - Queue processing is intentionally serialized via `queueLoopPromise` in [`utils/offline-download-queue.ts`](/Users/saigon/dev/hvbrowser/utils/offline-download-queue.ts).
 - Hydrating the offline library also rebuilds the in-memory download queue from queued chapter rows; [`app/_layout.tsx`](/Users/saigon/dev/hvbrowser/app/_layout.tsx) restarts the queue loop when queued items are present.
 - Existing downloaded HTML should be reused when possible instead of redownloading.

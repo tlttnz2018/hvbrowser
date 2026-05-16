@@ -260,6 +260,7 @@ export default function OfflineLibraryList({
   const [storyOverlayKind, setStoryOverlayKind] = useState<StoryOverlayKind>(null);
   const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
   const [storySearchQuery, setStorySearchQuery] = useState('');
+  const [storyLastOnly, setStoryLastOnly] = useState(false);
   const importJobsVisible = importJobs.filter(
     (job) =>
       job.status !== 'completed' || !!job.errorMessage || job.importedChapters < job.totalChapters,
@@ -280,6 +281,31 @@ export default function OfflineLibraryList({
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const activeStory = stories.find((story) => story.id === activeStoryId) ?? null;
   const storyNormalizedQuery = storySearchQuery.trim().toLowerCase();
+  const activeStoryLastOpenedChapterId = useMemo(() => {
+    if (!activeStory) {
+      return null;
+    }
+
+    const storyChapters = chaptersByStory[activeStory.id] ?? [];
+    return storyChapters.reduce<number | null>((latestId, chapter) => {
+      if (!chapter.lastOpenedAt) {
+        return latestId;
+      }
+
+      if (latestId == null) {
+        return chapter.id;
+      }
+
+      const latestChapter = storyChapters.find((entry) => entry.id === latestId);
+      if (!latestChapter?.lastOpenedAt) {
+        return chapter.id;
+      }
+
+      return latestChapter.lastOpenedAt.localeCompare(chapter.lastOpenedAt) >= 0
+        ? latestId
+        : chapter.id;
+    }, null);
+  }, [activeStory, chaptersByStory]);
 
   const storyRows = useMemo<StoryRow[]>(() => {
     return stories
@@ -357,7 +383,11 @@ export default function OfflineLibraryList({
     }
 
     return (chaptersByStory[activeStory.id] ?? [])
-      .filter((chapter) => matchesChapterFilter(chapter, filterKey))
+      .filter((chapter) =>
+        storyLastOnly
+          ? chapter.id === activeStoryLastOpenedChapterId
+          : matchesChapterFilter(chapter, filterKey),
+      )
       .filter((chapter) => {
         if (!storyNormalizedQuery) {
           return true;
@@ -373,7 +403,14 @@ export default function OfflineLibraryList({
         chapter,
         storyName: activeStory.name,
       }));
-  }, [activeStory, chaptersByStory, filterKey, storyNormalizedQuery]);
+  }, [
+    activeStory,
+    chaptersByStory,
+    filterKey,
+    storyNormalizedQuery,
+    storyLastOnly,
+    activeStoryLastOpenedChapterId,
+  ]);
 
   const jumpTargets = useMemo(() => {
     const rows = chapterRows;
@@ -390,7 +427,25 @@ export default function OfflineLibraryList({
     const failedIndex = activeStoryChapterRows.findIndex(
       (row) => row.chapter.downloadStatus === 'failed',
     );
-    return { activeIndex, failedIndex };
+    const lastOpenedIndex = activeStoryChapterRows.reduce((bestIndex, row, index, rows) => {
+      const currentLastOpenedAt = row.chapter.lastOpenedAt;
+      if (!currentLastOpenedAt) {
+        return bestIndex;
+      }
+
+      if (bestIndex < 0) {
+        return index;
+      }
+
+      const bestLastOpenedAt = rows[bestIndex]?.chapter.lastOpenedAt;
+      if (!bestLastOpenedAt) {
+        return index;
+      }
+
+      return bestLastOpenedAt.localeCompare(currentLastOpenedAt) >= 0 ? bestIndex : index;
+    }, -1);
+
+    return { activeIndex, failedIndex, lastOpenedIndex };
   }, [activeDownloadId, activeStoryChapterRows]);
 
   const scrollToMainChapterIndex = (index: number) => {
@@ -416,12 +471,14 @@ export default function OfflineLibraryList({
   const openStoryBrowser = (storyId: number) => {
     setActiveStoryId(storyId);
     setStorySearchQuery('');
+    setStoryLastOnly(false);
   };
 
   const closeStoryBrowser = () => {
     setActiveStoryId(null);
     setStorySearchQuery('');
     setStoryOverlayKind(null);
+    setStoryLastOnly(false);
   };
 
   const scrollHeader = (
@@ -831,7 +888,11 @@ export default function OfflineLibraryList({
               </Text>
               <Text style={styles.storyBrowserMeta}>
                 {activeStoryChapterRows.length} chapters •{' '}
-                {filterKey === 'all' ? 'all statuses' : filterKey}
+                {storyLastOnly
+                  ? 'last opened only'
+                  : filterKey === 'all'
+                    ? 'all statuses'
+                    : filterKey}
               </Text>
             </View>
             <Pressable
@@ -845,7 +906,12 @@ export default function OfflineLibraryList({
           <View style={styles.searchWrap}>
             <TextInput
               value={storySearchQuery}
-              onChangeText={setStorySearchQuery}
+              onChangeText={(value) => {
+                setStorySearchQuery(value);
+                if (storyLastOnly) {
+                  setStoryLastOnly(false);
+                }
+              }}
               placeholder="Search this story's chapters"
               placeholderTextColor={theme.colors.inputPlaceholder}
               style={styles.storySearchInput}
@@ -863,14 +929,34 @@ export default function OfflineLibraryList({
 
           <View style={styles.storyBrowserActions}>
             <Pressable
-              onPress={() => scrollToActiveStoryIndex(0)}
+              onPress={() => {
+                setStoryLastOnly(false);
+                scrollToActiveStoryIndex(0);
+              }}
               style={styles.storyBrowserAction}
             >
               <Text style={styles.storyBrowserActionLabel}>Top</Text>
             </Pressable>
             <Pressable
+              disabled={activeStoryLastOpenedChapterId == null}
+              onPress={() => {
+                setStoryLastOnly(true);
+                setStorySearchQuery('');
+              }}
+              style={[
+                styles.storyBrowserAction,
+                activeStoryLastOpenedChapterId == null && styles.storyBrowserActionDisabled,
+                storyLastOnly && styles.storyBrowserActionActive,
+              ]}
+            >
+              <Text style={styles.storyBrowserActionLabel}>Last</Text>
+            </Pressable>
+            <Pressable
               disabled={activeStoryJumpTargets.activeIndex < 0}
-              onPress={() => scrollToActiveStoryIndex(activeStoryJumpTargets.activeIndex)}
+              onPress={() => {
+                setStoryLastOnly(false);
+                scrollToActiveStoryIndex(activeStoryJumpTargets.activeIndex);
+              }}
               style={[
                 styles.storyBrowserAction,
                 activeStoryJumpTargets.activeIndex < 0 && styles.storyBrowserActionDisabled,
@@ -880,7 +966,10 @@ export default function OfflineLibraryList({
             </Pressable>
             <Pressable
               disabled={activeStoryJumpTargets.failedIndex < 0}
-              onPress={() => scrollToActiveStoryIndex(activeStoryJumpTargets.failedIndex)}
+              onPress={() => {
+                setStoryLastOnly(false);
+                scrollToActiveStoryIndex(activeStoryJumpTargets.failedIndex);
+              }}
               style={[
                 styles.storyBrowserAction,
                 activeStoryJumpTargets.failedIndex < 0 && styles.storyBrowserActionDisabled,
@@ -927,6 +1016,7 @@ export default function OfflineLibraryList({
                 selected={filterKey === option.key}
                 onPress={() => {
                   setFilterKey(option.key);
+                  setStoryLastOnly(false);
                   setStoryOverlayKind(null);
                 }}
               />
@@ -1326,6 +1416,10 @@ const createStyles = (theme: Theme) =>
       borderColor: theme.colors.border,
       paddingHorizontal: theme.spacing.md,
       paddingVertical: theme.spacing.sm,
+    },
+    storyBrowserActionActive: {
+      backgroundColor: theme.colors.accentSoft,
+      borderColor: theme.colors.borderAccent,
     },
     storyBrowserActionDisabled: {
       opacity: 0.45,

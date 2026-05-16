@@ -40,6 +40,7 @@ interface OfflineChapterTable {
   download_status: OfflineChapterStatus;
   download_error: string | null;
   downloaded_at: string | null;
+  last_opened_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -95,6 +96,7 @@ export interface OfflineChapterRecord {
   downloadStatus: OfflineChapterStatus;
   downloadError: string | null;
   downloadedAt: string | null;
+  lastOpenedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -108,6 +110,7 @@ export interface OfflineChapterBackupRecord {
   downloadStatus: OfflineChapterStatus;
   downloadError: string | null;
   downloadedAt: string | null;
+  lastOpenedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -124,6 +127,7 @@ export interface OfflineLibraryBackupChapter {
   downloadStatus: OfflineChapterStatus;
   downloadError: string | null;
   downloadedAt: string | null;
+  lastOpenedAt: string | null;
   createdAt: string;
   updatedAt: string;
   contentPath: string | null;
@@ -196,6 +200,7 @@ interface SaveOfflineChapterInput {
   downloadStatus?: OfflineChapterStatus;
   downloadError?: string | null;
   downloadedAt?: string | null;
+  lastOpenedAt?: string | null;
 }
 
 interface CreateEpubImportJobInput {
@@ -313,6 +318,11 @@ const migrations: Record<string, Migration> = {
         .execute();
     },
   },
+  '003_add_offline_chapter_last_opened_at': {
+    async up(db) {
+      await db.schema.alterTable('offline_chapters').addColumn('last_opened_at', 'text').execute();
+    },
+  },
 };
 
 const migrationProvider: MigrationProvider = {
@@ -361,6 +371,7 @@ function mapOfflineChapterRow(row: OfflineChapterRow): OfflineChapterRecord {
     downloadStatus: row.download_status,
     downloadError: row.download_error,
     downloadedAt: row.downloaded_at,
+    lastOpenedAt: row.last_opened_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -595,6 +606,8 @@ export async function saveOfflineChapter(
   const downloadError = input.downloadError ?? existing?.downloadError ?? null;
   const downloadedAt =
     input.downloadedAt !== undefined ? input.downloadedAt : (existing?.downloadedAt ?? null);
+  const lastOpenedAt =
+    input.lastOpenedAt !== undefined ? input.lastOpenedAt : (existing?.lastOpenedAt ?? null);
 
   await offlineDb
     .insertInto('offline_chapters')
@@ -608,6 +621,7 @@ export async function saveOfflineChapter(
       download_status: downloadStatus,
       download_error: downloadError,
       downloaded_at: downloadedAt,
+      last_opened_at: lastOpenedAt,
       created_at: now,
       updated_at: now,
     })
@@ -621,6 +635,7 @@ export async function saveOfflineChapter(
         download_status: downloadStatus,
         download_error: downloadError,
         downloaded_at: downloadedAt,
+        last_opened_at: lastOpenedAt,
         updated_at: now,
       }),
     )
@@ -672,6 +687,7 @@ export async function listOfflineChapterBackupRecordsByStory(
       'download_status',
       'download_error',
       'downloaded_at',
+      'last_opened_at',
       'created_at',
       'updated_at',
     ])
@@ -689,6 +705,7 @@ export async function listOfflineChapterBackupRecordsByStory(
     downloadStatus: row.download_status,
     downloadError: row.download_error,
     downloadedAt: row.downloaded_at,
+    lastOpenedAt: row.last_opened_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -726,7 +743,10 @@ export async function updateOfflineChapterStatus(
   status: OfflineChapterStatus,
   error?: string | null,
   payload?: Partial<
-    Pick<OfflineChapterRecord, 'chapterName' | 'originalHtml' | 'convertedHvHtml' | 'downloadedAt'>
+    Pick<
+      OfflineChapterRecord,
+      'chapterName' | 'originalHtml' | 'convertedHvHtml' | 'downloadedAt' | 'lastOpenedAt'
+    >
   >,
 ): Promise<OfflineChapterRecord | null> {
   await ensureOfflineDbReady();
@@ -748,8 +768,29 @@ export async function updateOfflineChapterStatus(
   if (payload?.convertedHvHtml !== undefined) {
     nextValues.converted_hv_html = payload.convertedHvHtml;
   }
+  if (payload?.lastOpenedAt !== undefined) {
+    nextValues.last_opened_at = payload.lastOpenedAt;
+  }
 
   await offlineDb.updateTable('offline_chapters').set(nextValues).where('id', '=', id).execute();
+
+  return getOfflineChapterById(id);
+}
+
+export async function markOfflineChapterOpened(
+  id: number,
+  lastOpenedAt = new Date().toISOString(),
+): Promise<OfflineChapterRecord | null> {
+  await ensureOfflineDbReady();
+
+  await offlineDb
+    .updateTable('offline_chapters')
+    .set({
+      last_opened_at: lastOpenedAt,
+      updated_at: new Date().toISOString(),
+    })
+    .where('id', '=', id)
+    .execute();
 
   return getOfflineChapterById(id);
 }

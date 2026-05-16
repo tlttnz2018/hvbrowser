@@ -179,6 +179,7 @@ interface AppState {
   markEpubImportJobFailed: (id: number, error: string) => void;
   setEpubImportQueueRunning: (running: boolean) => void;
   setEpubImportLastError: (error: string | null) => void;
+  markOfflineChapterOpened: (chapter: OfflineChapterRecord) => void;
   openOfflineChapterInReader: (chapterId: number) => void;
   setCurrentContentSource: (source: ReaderContentSource, offlineChapterId?: number | null) => void;
   openPageRolePicker: (action: PendingOfflineAction) => void;
@@ -703,6 +704,14 @@ export const useAppStore = create<AppState>()(
 
       setEpubImportQueueRunning: (epubImportQueueRunning) => set({ epubImportQueueRunning }),
       setEpubImportLastError: (epubImportLastError) => set({ epubImportLastError }),
+
+      markOfflineChapterOpened: (chapter) =>
+        set((state) => ({
+          offlineChaptersByStory: upsertOfflineChapterInState(
+            state.offlineChaptersByStory,
+            chapter,
+          ),
+        })),
 
       openOfflineChapterInReader: (chapterId) =>
         set({

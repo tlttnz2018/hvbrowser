@@ -113,6 +113,22 @@ Why:
 - URL-only history is not enough to restore offline chapter sessions reliably.
 - EPUB navigation and chapter-to-chapter jumps need stable offline identity.
 
+### 2026-05 Offline chapter resume state is persisted per chapter
+
+Status: Accepted
+
+- Offline chapters store a persisted `lastOpenedAt` timestamp.
+- Opening an offline chapter updates `lastOpenedAt` through the normal reader load path.
+- Resume state must survive:
+  - switching between books
+  - app restarts
+  - offline library backup/export and restore
+
+Why:
+
+- Resume behavior should come from durable reading state, not transient UI state.
+- Both the offline library and reader surfaces need a shared source of truth for “last chapter read”.
+
 ### 2026-05 All `epub://` opens must resolve through offline chapter lookup
 
 Status: Accepted
@@ -152,6 +168,24 @@ Why:
 
 - Small screens need more vertical room for lists.
 - Sources and offline books should behave consistently.
+
+### 2026-05 Reader TOC and offline book browser use different resume affordances
+
+Status: Accepted
+
+- The in-reader TOC remains chapter-oriented:
+  - searchable
+  - `All` / `Current` filtering
+  - jump-to-current support
+- The in-reader TOC should not expose a separate `Last` view, because the reader is already inside a specific chapter session.
+- The offline library's per-book chapter browser exposes a `Last` action as a true resume mode:
+  - it shows only the last opened chapter for that book
+  - it is distinct from merely scrolling a full chapter list to a position
+
+Why:
+
+- `Last` is meaningful when resuming a book from the library, but redundant inside an already-open reader session.
+- A one-chapter resume view is faster to use on mobile than reopening a long chapter list and scrolling within it.
 
 ### 2026-05 Offline library backups use a streaming ZIP archive
 

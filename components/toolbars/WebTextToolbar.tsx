@@ -1,6 +1,6 @@
 import { FontAwesome6 } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { OfflineChapterRecord } from '../../db/offline';
 import { useOfflineDownloads } from '../../hooks/useOfflineDownloads';
@@ -8,6 +8,7 @@ import { usePageLoader } from '../../hooks/usePageLoader';
 import { useAppStore } from '../../stores/useAppStore';
 import { useWebPageStore } from '../../stores/useWebPageStore';
 import { Theme, useTheme } from '../../theme';
+import SegmentedControl from '../buttons/SegmentedControl';
 import ToolbarButton from '../buttons/ToolbarButton';
 
 interface WebTextToolbarProps {
@@ -15,13 +16,33 @@ interface WebTextToolbarProps {
 }
 
 const EMPTY_CHAPTERS: OfflineChapterRecord[] = [];
+const ESTIMATED_CONTENT_ROW_HEIGHT = 78;
+
+type ContentsFilterKey = 'all' | 'current';
+
+const CONTENTS_FILTER_OPTIONS: Array<{ key: ContentsFilterKey; label: string }> = [
+  { key: 'all', label: 'All' },
+  { key: 'current', label: 'Current' },
+];
+
+function matchesContentsFilter(
+  chapter: OfflineChapterRecord,
+  filterKey: ContentsFilterKey,
+  currentOfflineChapterId: number | null,
+) {
+  if (filterKey === 'all') return true;
+  return chapter.id === currentOfflineChapterId;
+}
 
 export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
   const theme = useTheme();
   const styles = createStyles(theme);
   const { startDownloadFromCurrentPage } = useOfflineDownloads();
   const { loadOfflineChapter } = usePageLoader();
+  const contentsListRef = useRef<FlatList<OfflineChapterRecord>>(null);
   const [contentsVisible, setContentsVisible] = useState(false);
+  const [contentsSearchQuery, setContentsSearchQuery] = useState('');
+  const [contentsFilterKey, setContentsFilterKey] = useState<ContentsFilterKey>('all');
   const { moreMenu, toggleMoreMenu, decreaseFont, resetFont, increaseFont, setThemeMode } =
     useWebPageStore();
   const currentUrl = useAppStore((state) => state.currentUrl);
@@ -60,6 +81,67 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
     currentStoryChapterIndex >= 0 && currentStoryChapterIndex < currentStoryChapters.length - 1
       ? currentStoryChapters[currentStoryChapterIndex + 1]
       : null;
+  const filteredStoryChapters = useMemo(() => {
+    const query = contentsSearchQuery.trim().toLowerCase();
+
+    return currentStoryChapters.filter((chapter) => {
+      if (!matchesContentsFilter(chapter, contentsFilterKey, currentOfflineChapterId)) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      return `${chapter.chapterName} ${chapter.chapterUrl}`.toLowerCase().includes(query);
+    });
+  }, [contentsFilterKey, contentsSearchQuery, currentOfflineChapterId, currentStoryChapters]);
+  const contentsSummaryLabel = `${filteredStoryChapters.length} visible • ${currentStoryChapters.length} total`;
+  const contentsJumpTargets = useMemo(() => {
+    const currentIndex = filteredStoryChapters.findIndex(
+      (chapter) => chapter.id === currentOfflineChapterId,
+    );
+
+    return {
+      currentIndex,
+    };
+  }, [currentOfflineChapterId, filteredStoryChapters]);
+  const contentsBucketActions = useMemo(() => {
+    if (filteredStoryChapters.length <= 1000) {
+      return [];
+    }
+
+    const buckets = new Map<number, { label: string; index: number }>();
+
+    filteredStoryChapters.forEach((chapter, index) => {
+      const order = chapter.chapterOrder ?? index + 1;
+      const bucketStart = Math.floor((Math.max(order, 1) - 1) / 1000) * 1000 + 1;
+      if (!buckets.has(bucketStart)) {
+        const bucketEnd = bucketStart + 999;
+        buckets.set(bucketStart, { label: `${bucketStart}-${bucketEnd}`, index });
+      }
+    });
+
+    return Array.from(buckets.values()).slice(0, 8);
+  }, [filteredStoryChapters]);
+
+  useEffect(() => {
+    if (!contentsVisible) {
+      setContentsSearchQuery('');
+      setContentsFilterKey('all');
+    }
+  }, [contentsVisible]);
+
+  const scrollContentsToIndex = (index: number, measuredLength = ESTIMATED_CONTENT_ROW_HEIGHT) => {
+    if (index < 0 || index >= filteredStoryChapters.length) {
+      return;
+    }
+
+    contentsListRef.current?.scrollToOffset({
+      offset: Math.max(0, index * measuredLength),
+      animated: true,
+    });
+  };
 
   return (
     <>
@@ -156,32 +238,135 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
           <Pressable style={styles.modalBackdrop} onPress={() => setContentsVisible(false)} />
           <View style={styles.contentsSheet}>
             <View style={styles.contentsHeader}>
-              <Text numberOfLines={1} style={styles.contentsTitle}>
-                {currentStory?.name ?? 'Contents'}
-              </Text>
-              <Pressable onPress={() => setContentsVisible(false)} style={styles.contentsClose}>
-                <Text style={styles.contentsCloseLabel}>Close</Text>
-              </Pressable>
+              <Text style={styles.contentsEyebrow}>Contents</Text>
+              <View style={styles.contentsHeaderTopRow}>
+                <Text numberOfLines={1} style={styles.contentsTitle}>
+                  {currentStory?.name ?? 'Contents'}
+                </Text>
+                <Pressable onPress={() => setContentsVisible(false)} style={styles.contentsClose}>
+                  <Text style={styles.contentsCloseLabel}>Close</Text>
+                </Pressable>
+              </View>
+              <Text style={styles.contentsSummary}>{contentsSummaryLabel}</Text>
+              <View style={styles.contentsSearchWrap}>
+                <TextInput
+                  value={contentsSearchQuery}
+                  onChangeText={setContentsSearchQuery}
+                  placeholder="Search chapter title or URL"
+                  placeholderTextColor={theme.colors.inputPlaceholder}
+                  style={styles.contentsSearchInput}
+                />
+                {!!contentsSearchQuery && (
+                  <Pressable
+                    accessibilityLabel="Clear search"
+                    onPress={() => setContentsSearchQuery('')}
+                    style={styles.contentsClearButton}
+                  >
+                    <FontAwesome6 name="xmark" size={12} color={theme.colors.textAccent} />
+                  </Pressable>
+                )}
+              </View>
+              <View style={styles.contentsSegmentWrap}>
+                <SegmentedControl
+                  accessibilityLabel="Offline contents filters"
+                  compact
+                  onChange={(key) => setContentsFilterKey(key as ContentsFilterKey)}
+                  options={CONTENTS_FILTER_OPTIONS}
+                  selectedKey={contentsFilterKey}
+                />
+              </View>
+              <View style={styles.contentsJumpRow}>
+                <Pressable onPress={() => scrollContentsToIndex(0)} style={styles.contentsJumpPill}>
+                  <Text style={styles.contentsJumpLabel}>Top</Text>
+                </Pressable>
+                <Pressable
+                  disabled={contentsJumpTargets.currentIndex < 0}
+                  onPress={() => scrollContentsToIndex(contentsJumpTargets.currentIndex)}
+                  style={[
+                    styles.contentsJumpPill,
+                    contentsJumpTargets.currentIndex < 0 && styles.contentsJumpPillDisabled,
+                  ]}
+                >
+                  <Text style={styles.contentsJumpLabel}>Current</Text>
+                </Pressable>
+              </View>
+              {!!contentsBucketActions.length && (
+                <View style={styles.contentsBucketRow}>
+                  {contentsBucketActions.map((bucket) => (
+                    <Pressable
+                      key={bucket.label}
+                      onPress={() => scrollContentsToIndex(bucket.index)}
+                      style={styles.contentsBucketPill}
+                    >
+                      <Text style={styles.contentsBucketLabel}>{bucket.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
             </View>
-            <ScrollView contentContainerStyle={styles.contentsList}>
-              {currentStoryChapters.map((chapter) => {
-                const active = chapter.id === currentOfflineChapterId;
+            <FlatList
+              ref={contentsListRef}
+              data={filteredStoryChapters}
+              keyExtractor={(item) => `${item.id}`}
+              contentContainerStyle={styles.contentsList}
+              getItemLayout={(_, index) => ({
+                length: ESTIMATED_CONTENT_ROW_HEIGHT,
+                offset: ESTIMATED_CONTENT_ROW_HEIGHT * index,
+                index,
+              })}
+              initialNumToRender={24}
+              maxToRenderPerBatch={32}
+              removeClippedSubviews
+              windowSize={10}
+              onScrollToIndexFailed={({ index, averageItemLength }) => {
+                requestAnimationFrame(() =>
+                  scrollContentsToIndex(
+                    Math.min(index, filteredStoryChapters.length - 1),
+                    averageItemLength || ESTIMATED_CONTENT_ROW_HEIGHT,
+                  ),
+                );
+              }}
+              renderItem={({ item }) => {
+                const active = item.id === currentOfflineChapterId;
                 return (
                   <Pressable
-                    key={chapter.id}
                     onPress={() => {
                       setContentsVisible(false);
-                      loadOfflineChapter(chapter.id);
+                      loadOfflineChapter(item.id);
                     }}
                     style={[styles.contentsRow, active && styles.contentsRowActive]}
                   >
-                    <Text style={[styles.contentsRowText, active && styles.contentsRowTextActive]}>
-                      {chapter.chapterName}
-                    </Text>
+                    <View style={styles.contentsRowContent}>
+                      <Text
+                        style={[styles.contentsRowText, active && styles.contentsRowTextActive]}
+                      >
+                        {item.chapterName}
+                      </Text>
+                      <Text numberOfLines={1} style={styles.contentsRowMeta}>
+                        {active
+                          ? 'Current chapter'
+                          : item.chapterOrder != null
+                            ? `Chapter ${item.chapterOrder}`
+                            : item.chapterUrl}
+                      </Text>
+                    </View>
+                    <View
+                      style={[styles.contentsStatusPill, active && styles.contentsStatusPillActive]}
+                    >
+                      <Text style={styles.contentsStatusLabel}>{active ? 'Reading' : 'Open'}</Text>
+                    </View>
                   </Pressable>
                 );
-              })}
-            </ScrollView>
+              }}
+              ListEmptyComponent={
+                <View style={styles.contentsEmptyState}>
+                  <Text style={styles.contentsEmptyTitle}>No chapters match this view</Text>
+                  <Text style={styles.contentsEmptyText}>
+                    Try another filter, clear the search, or switch back to All.
+                  </Text>
+                </View>
+              }
+            />
           </View>
         </View>
       </Modal>
@@ -253,7 +438,7 @@ const createStyles = (theme: Theme) =>
       flex: 1,
     },
     contentsSheet: {
-      maxHeight: '68%',
+      maxHeight: '82%',
       backgroundColor: theme.colors.surface,
       borderTopLeftRadius: theme.radius.xxl,
       borderTopRightRadius: theme.radius.xxl,
@@ -262,10 +447,18 @@ const createStyles = (theme: Theme) =>
       paddingBottom: theme.spacing.xl,
     },
     contentsHeader: {
+      flexShrink: 0,
+      marginBottom: theme.spacing.md,
+    },
+    contentsEyebrow: {
+      ...theme.typography.monoCaps,
+      color: theme.colors.textAccent,
+    },
+    contentsHeaderTopRow: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: theme.spacing.md,
+      marginTop: theme.spacing.xs,
     },
     contentsTitle: {
       flex: 1,
@@ -283,25 +476,144 @@ const createStyles = (theme: Theme) =>
       ...theme.typography.caption,
       color: theme.colors.textAccent,
     },
+    contentsSummary: {
+      marginTop: theme.spacing.sm,
+      ...theme.typography.caption,
+      color: theme.colors.textSubtle,
+    },
+    contentsSearchWrap: {
+      marginTop: theme.spacing.md,
+      position: 'relative',
+    },
+    contentsSearchInput: {
+      height: 44,
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+      borderColor: theme.colors.inputBorder,
+      backgroundColor: theme.colors.inputBackground,
+      paddingHorizontal: 14,
+      paddingRight: 42,
+      fontSize: 15,
+      color: theme.colors.text,
+    },
+    contentsClearButton: {
+      position: 'absolute',
+      top: 7,
+      right: 8,
+      width: 30,
+      height: 30,
+      borderRadius: theme.radius.sm,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.colors.surfaceMuted,
+    },
+    contentsSegmentWrap: {
+      marginTop: theme.spacing.md,
+      marginHorizontal: -4,
+      alignItems: 'flex-start',
+    },
+    contentsJumpRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      marginTop: theme.spacing.md,
+    },
+    contentsJumpPill: {
+      marginRight: theme.spacing.sm,
+      marginBottom: theme.spacing.sm,
+      paddingHorizontal: theme.spacing.md,
+      paddingVertical: theme.spacing.sm,
+      borderRadius: theme.radius.full,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.surface,
+    },
+    contentsJumpPillDisabled: {
+      opacity: 0.45,
+    },
+    contentsJumpLabel: {
+      ...theme.typography.caption,
+      color: theme.colors.text,
+    },
+    contentsBucketRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      marginTop: theme.spacing.xs,
+    },
+    contentsBucketPill: {
+      marginRight: theme.spacing.sm,
+      marginBottom: theme.spacing.sm,
+      paddingHorizontal: theme.spacing.sm,
+      paddingVertical: theme.spacing.xs,
+      borderRadius: theme.radius.full,
+      backgroundColor: theme.colors.accentSoft,
+    },
+    contentsBucketLabel: {
+      ...theme.typography.caption,
+      color: theme.colors.textAccent,
+    },
     contentsList: {
       paddingBottom: theme.spacing.lg,
     },
+    contentsRowContent: {
+      flex: 1,
+      marginRight: theme.spacing.md,
+    },
     contentsRow: {
-      paddingVertical: theme.spacing.md,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: theme.colors.borderMuted,
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderRadius: theme.radius.lg,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      backgroundColor: theme.colors.inputBackground,
+      padding: theme.spacing.md,
+      marginBottom: theme.spacing.sm,
     },
     contentsRowActive: {
       backgroundColor: theme.colors.accentSoft,
-      borderRadius: theme.radius.md,
-      paddingHorizontal: theme.spacing.md,
+      borderColor: theme.colors.borderAccent,
     },
     contentsRowText: {
-      ...theme.typography.body,
+      ...theme.typography.bodyStrong,
       color: theme.colors.text,
     },
     contentsRowTextActive: {
       color: theme.colors.textAccent,
       fontWeight: '700',
+    },
+    contentsRowMeta: {
+      marginTop: 2,
+      ...theme.typography.caption,
+      color: theme.colors.textMuted,
+    },
+    contentsStatusPill: {
+      borderRadius: theme.radius.full,
+      paddingHorizontal: theme.spacing.sm,
+      paddingVertical: 6,
+      backgroundColor: theme.colors.accentSoft,
+    },
+    contentsStatusPillActive: {
+      backgroundColor: theme.colors.accent,
+    },
+    contentsStatusLabel: {
+      ...theme.typography.caption,
+      color: theme.colors.textAccent,
+      textTransform: 'capitalize',
+    },
+    contentsEmptyState: {
+      marginTop: theme.spacing.lg,
+      borderRadius: theme.radius.xl,
+      backgroundColor: theme.colors.inputBackground,
+      padding: theme.spacing.lg,
+      borderWidth: 1,
+      borderColor: theme.colors.borderMuted,
+    },
+    contentsEmptyTitle: {
+      ...theme.typography.bodyStrong,
+      color: theme.colors.text,
+    },
+    contentsEmptyText: {
+      marginTop: 6,
+      ...theme.typography.body,
+      color: theme.colors.textMuted,
     },
   });
