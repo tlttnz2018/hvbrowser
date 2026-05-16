@@ -153,6 +153,69 @@ Why:
 - Small screens need more vertical room for lists.
 - Sources and offline books should behave consistently.
 
+### 2026-05 Offline library backups use a streaming ZIP archive
+
+Status: Accepted
+
+- Offline library export/import uses a single ZIP archive, not loose files.
+- Export writes the ZIP directly to the chosen destination instead of building the full archive in memory.
+- Import reads the ZIP sequentially and applies entries story-by-story.
+- Backup archives target iOS/Android in v1; web can remain unsupported with a clear message.
+
+Why:
+
+- Offline libraries can contain many chapters and EPUB assets.
+- Small-memory devices need bounded RAM use during backup and restore.
+- A single archive is easier for users to move and re-import.
+
+### 2026-05 Offline library backups store original HTML and regenerate Han-Viet lazily
+
+Status: Accepted
+
+- Backups store chapter `originalHtml` only.
+- `convertedHvHtml` is not exported.
+- Restored chapters regenerate and persist Han-Viet HTML later through the normal reader path when needed.
+
+Why:
+
+- Storing both HTML variants inflates backup size.
+- Lazy regeneration keeps backup files smaller without changing reader behavior.
+
+### 2026-05 Offline backup import merges books by source-aware identity
+
+Status: Accepted
+
+- Remote offline stories merge by sanitized `homePageUrl`, or sanitized `indexPageUrl` when home URL is absent.
+- URL sanitization follows the bookmark-style rule:
+  - strip hash fragments
+  - ignore tracking-style query params
+  - keep meaningful content query params
+- EPUB stories merge by metadata first:
+  - normalized title match is required
+  - if both sides have authors, normalized author must also match
+  - if only one side has author, original EPUB filename is the tiebreaker
+  - if metadata title is missing, fall back to original EPUB filename
+- Chapters continue to merge by normalized `chapterUrl` with the hash removed.
+
+Why:
+
+- Remote books need stable URL matching without over-collapsing different content pages.
+- EPUB `epub://story/<id>/...` URLs are device-local and cannot be used as portable identity.
+
+### 2026-05 Offline backup import restores unfinished remote chapters as queued
+
+Status: Accepted
+
+- Backup import restores remote `queued` and `downloading` chapters as `queued`.
+- Existing downloaded chapter content must not be downgraded by an older queued/failed backup entry.
+- EPUB import jobs are excluded from backups entirely because their device-local source/workspace URIs are not portable.
+
+Why:
+
+- The existing offline queue can safely resume queued remote chapter downloads after restore.
+- Preserving downloaded content avoids regressions during additive import.
+- EPUB import job records do not round-trip across devices.
+
 ## Non-goals For Current EPUB Support
 
 - No DRM/encrypted EPUB support in v1.

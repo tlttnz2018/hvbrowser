@@ -12,6 +12,10 @@
 - EPUB chapters are stored as normal offline chapters with synthetic `epub://story/<id>/chapter/<n>` URLs and lazy `convertedHvHtml` generation.
 - Any `epub://...` open path, including bookmarks and history restores, must resolve through offline chapter lookup before remote loading.
 - Library tabs now share the same mobile behavior: the hero/info area scrolls away, while the tab row and tab-specific search/filter controls stay sticky.
+- Offline library backups now use a single streaming ZIP archive to keep RAM and temp-disk use bounded on mobile devices.
+- Backup restore merges remote stories by sanitized story URL, and merges EPUB stories by metadata-first matching with filename fallback/tiebreaker.
+- Backups store chapter `originalHtml` only; restored chapters regenerate `convertedHvHtml` lazily through the reader path.
+- Remote chapters restored from queued/downloading backup entries come back as `queued`, while existing downloaded content should not be downgraded by import.
 
 ## Current Stack
 

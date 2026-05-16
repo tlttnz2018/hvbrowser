@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Directory, File } from 'expo-file-system';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
@@ -22,6 +23,7 @@ import {
   listOfflineStories,
   OfflineChapterRecord,
   OfflineChapterStatus,
+  OfflineLibraryImportResult,
   OfflineStoryRecord,
   saveOfflineChapter,
 } from '../db/offline';
@@ -30,6 +32,10 @@ import {
   truncateBookmarkTitle,
   urlsMatchForBookmark,
 } from '../utils/bookmarks';
+import {
+  exportOfflineLibraryBackup as exportOfflineLibraryArchive,
+  importOfflineLibraryBackup as importOfflineLibraryArchive,
+} from '../utils/offline-library-backup';
 
 const OLD_LASTVIEW_KEY = 'HV_BROWSER_LASTVIEW_STORAGE_KEY';
 
@@ -147,6 +153,8 @@ interface AppState {
   markBookmarkVisited: (url: string) => Promise<void>;
   importBookmarksBackup: (raw: string) => Promise<number>;
   exportBookmarksBackup: () => Promise<string>;
+  exportOfflineLibraryBackup: (directory: Directory) => Promise<File>;
+  importOfflineLibraryBackup: (file: File) => Promise<OfflineLibraryImportResult>;
   setDictionary: (dict: Record<string, string>) => void;
   setPinyinDictionary: (dict: Record<string, string>) => void;
   enqueueOfflineChapter: (input: {
@@ -533,6 +541,16 @@ export const useAppStore = create<AppState>()(
       exportBookmarksBackup: async () => {
         const payload = await exportBookmarksPayload();
         return JSON.stringify(payload, null, 2);
+      },
+
+      exportOfflineLibraryBackup: async (directory) => {
+        return await exportOfflineLibraryArchive(directory);
+      },
+
+      importOfflineLibraryBackup: async (file) => {
+        const result = await importOfflineLibraryArchive(file);
+        await get().refreshOfflineLibrary();
+        return result;
       },
 
       setDictionary: (dictionary) => set({ dictionary }),

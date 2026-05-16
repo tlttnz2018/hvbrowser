@@ -99,6 +99,65 @@ export interface OfflineChapterRecord {
   updatedAt: string;
 }
 
+export interface OfflineChapterBackupRecord {
+  id: number;
+  storyId: number;
+  chapterName: string;
+  chapterUrl: string;
+  chapterOrder: number | null;
+  downloadStatus: OfflineChapterStatus;
+  downloadError: string | null;
+  downloadedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OfflineLibraryBackupAsset {
+  archivePath: string;
+  relativePath: string;
+}
+
+export interface OfflineLibraryBackupChapter {
+  chapterUrl: string;
+  chapterName: string;
+  chapterOrder: number | null;
+  downloadStatus: OfflineChapterStatus;
+  downloadError: string | null;
+  downloadedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  contentPath: string | null;
+}
+
+export interface OfflineLibraryBackupStory {
+  storyKey: string;
+  name: string;
+  homePageUrl: string | null;
+  indexPageUrl: string | null;
+  sourceType: OfflineStorySourceType;
+  author: string | null;
+  sourceFileName: string | null;
+  coverImagePath: string | null;
+  assetPlaceholderPrefix: string | null;
+  chapters: OfflineLibraryBackupChapter[];
+  assets: OfflineLibraryBackupAsset[];
+}
+
+export interface OfflineLibraryBackupManifest {
+  format: 'hvbrowser-offline-library';
+  version: 1;
+  exportedAt: string;
+  storyKeys: string[];
+  totalStories: number;
+}
+
+export interface OfflineLibraryImportResult {
+  importedStories: number;
+  importedChapters: number;
+  queuedChapters: number;
+  assetFiles: number;
+}
+
 export interface EpubImportJobRecord {
   id: number;
   fileName: string;
@@ -595,6 +654,44 @@ export async function listOfflineChaptersByStory(storyId: number): Promise<Offli
     .execute();
 
   return rows.map(mapOfflineChapterRow);
+}
+
+export async function listOfflineChapterBackupRecordsByStory(
+  storyId: number,
+): Promise<OfflineChapterBackupRecord[]> {
+  await ensureOfflineDbReady();
+
+  const rows = await offlineDb
+    .selectFrom('offline_chapters')
+    .select([
+      'id',
+      'story_id',
+      'chapter_name',
+      'chapter_url',
+      'chapter_order',
+      'download_status',
+      'download_error',
+      'downloaded_at',
+      'created_at',
+      'updated_at',
+    ])
+    .where('story_id', '=', storyId)
+    .orderBy('chapter_order', 'asc')
+    .orderBy('created_at', 'asc')
+    .execute();
+
+  return rows.map((row) => ({
+    id: row.id,
+    storyId: row.story_id,
+    chapterName: row.chapter_name,
+    chapterUrl: row.chapter_url,
+    chapterOrder: row.chapter_order,
+    downloadStatus: row.download_status,
+    downloadError: row.download_error,
+    downloadedAt: row.downloaded_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
 }
 
 export async function getOfflineChapterByUrl(

@@ -5,6 +5,7 @@ import {
   Alert,
   findNodeHandle,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -186,6 +187,8 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
   const openBookmarkEditorForBookmark = useAppStore((s) => s.openBookmarkEditorForBookmark);
   const importBookmarksBackup = useAppStore((s) => s.importBookmarksBackup);
   const exportBookmarksBackup = useAppStore((s) => s.exportBookmarksBackup);
+  const importOfflineLibraryBackup = useAppStore((s) => s.importOfflineLibraryBackup);
+  const exportOfflineLibraryBackup = useAppStore((s) => s.exportOfflineLibraryBackup);
   const refreshOfflineLibrary = useAppStore((s) => s.refreshOfflineLibrary);
   const offlineStories = useAppStore((s) => s.offlineStories);
   const offlineChaptersByStory = useAppStore((s) => s.offlineChaptersByStory);
@@ -202,6 +205,9 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
   const [bookmarkTransferBusy, setBookmarkTransferBusy] = useState<'import' | 'export' | null>(
     null,
   );
+  const [offlineTransferBusy, setOfflineTransferBusy] = useState<
+    'import-backup' | 'export-backup' | null
+  >(null);
   const [menuAnchor, setMenuAnchor] = useState<{
     x: number;
     y: number;
@@ -351,6 +357,73 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
       }
     } finally {
       setBookmarkTransferBusy(null);
+    }
+  };
+
+  const handleImportOfflineLibraryBackup = async () => {
+    if (offlineTransferBusy) return;
+
+    if (Platform.OS === 'web') {
+      Alert.alert(
+        'Unsupported on web',
+        'Offline library backup currently works on iOS and Android only.',
+      );
+      return;
+    }
+
+    try {
+      setOfflineTransferBusy('import-backup');
+      const pickedFile = await File.pickFileAsync(undefined, 'application/zip');
+      const file = Array.isArray(pickedFile) ? pickedFile[0] : pickedFile;
+
+      if (!file) {
+        return;
+      }
+
+      const imported = await importOfflineLibraryBackup(new File(file.uri));
+      Alert.alert(
+        'Offline backup imported',
+        `${imported.importedStories} stor${imported.importedStories === 1 ? 'y' : 'ies'} and ${imported.importedChapters} chapter${imported.importedChapters === 1 ? '' : 's'} restored. ${imported.queuedChapters} chapter${imported.queuedChapters === 1 ? '' : 's'} queued for download.`,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unable to import that offline library backup.';
+      if (!/cancel/i.test(message)) {
+        Alert.alert('Import failed', message);
+      }
+    } finally {
+      setOfflineTransferBusy(null);
+    }
+  };
+
+  const handleExportOfflineLibraryBackup = async () => {
+    if (offlineTransferBusy) return;
+
+    if (Platform.OS === 'web') {
+      Alert.alert(
+        'Unsupported on web',
+        'Offline library backup currently works on iOS and Android only.',
+      );
+      return;
+    }
+
+    try {
+      setOfflineTransferBusy('export-backup');
+      const destinationDirectory = await Directory.pickDirectoryAsync();
+      const exportFile = await exportOfflineLibraryBackup(new Directory(destinationDirectory.uri));
+
+      Alert.alert(
+        'Offline backup exported',
+        `Saved ${exportFile.name} into the folder you selected on this device.`,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unable to export the offline library backup.';
+      if (!/cancel/i.test(message)) {
+        Alert.alert('Export failed', message);
+      }
+    } finally {
+      setOfflineTransferBusy(null);
     }
   };
 
@@ -546,11 +619,47 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
           <Text style={styles.sectionTitle}>Offline Library</Text>
           <View style={styles.transferActions}>
             <Pressable
+              accessibilityLabel="Import offline library backup"
+              disabled={offlineTransferBusy !== null}
+              onPress={() => {
+                void handleImportOfflineLibraryBackup();
+              }}
+              style={[
+                styles.transferButton,
+                offlineTransferBusy !== null && styles.transferButtonDisabled,
+              ]}
+            >
+              <FontAwesome6 name="file-import" size={12} color={theme.colors.textAccent} />
+              <Text style={styles.transferButtonText}>
+                {offlineTransferBusy === 'import-backup' ? 'Importing' : 'Import backup'}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel="Export offline library backup"
+              disabled={offlineTransferBusy !== null}
+              onPress={() => {
+                void handleExportOfflineLibraryBackup();
+              }}
+              style={[
+                styles.transferButton,
+                offlineTransferBusy !== null && styles.transferButtonDisabled,
+              ]}
+            >
+              <FontAwesome6 name="file-export" size={12} color={theme.colors.textAccent} />
+              <Text style={styles.transferButtonText}>
+                {offlineTransferBusy === 'export-backup' ? 'Exporting' : 'Export backup'}
+              </Text>
+            </Pressable>
+            <Pressable
               accessibilityLabel="Import EPUB file"
               onPress={() => {
                 void importEpub();
               }}
-              style={styles.transferButton}
+              disabled={offlineTransferBusy !== null}
+              style={[
+                styles.transferButton,
+                offlineTransferBusy !== null && styles.transferButtonDisabled,
+              ]}
             >
               <FontAwesome6 name="book-open-reader" size={12} color={theme.colors.textAccent} />
               <Text style={styles.transferButtonText}>Import EPUB</Text>
@@ -558,7 +667,8 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
           </View>
         </View>
         <Text style={styles.sectionCaption}>
-          EPUB imports run in the background queue while you keep reading online or offline.
+          EPUB imports run in the background queue while backup ZIPs let you move the full offline
+          library between devices.
         </Text>
       </View>
     </Pressable>
