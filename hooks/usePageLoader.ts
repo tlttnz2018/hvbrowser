@@ -40,6 +40,8 @@ export function usePageLoader() {
     setCurrentContentSource,
   } = useAppStore();
   const setFullSite = useWebPageStore((s) => s.setFullSite);
+  const setFontSize = useWebPageStore((s) => s.setFontSize);
+  const setIsHV = useWebPageStore((s) => s.setIsHV);
   const setUrlInputFocus = useWebPageStore((s) => s.setUrlInputFocus);
 
   const resolveOfflineChapterForUrl = useCallback(async (url: string) => {
@@ -72,6 +74,14 @@ export function usePageLoader() {
 
       if (openingLocalFileChapter && !alreadyInLocalFileSession) {
         setFullSite(false);
+      }
+      if (openingLocalFileChapter) {
+        if (chapter.readerFontSize != null) {
+          setFontSize(chapter.readerFontSize);
+        }
+        if (chapter.readerIsHv != null) {
+          setIsHV(chapter.readerIsHv);
+        }
       }
 
       setUrlInputFocus(false);
@@ -132,7 +142,9 @@ export function usePageLoader() {
       setLoadingStage,
       setPendingContentAnchor,
       setUrlInputFocus,
+      setFontSize,
       setFullSite,
+      setIsHV,
       setWebPageTitle,
     ],
   );

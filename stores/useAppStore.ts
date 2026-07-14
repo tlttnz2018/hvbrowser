@@ -26,6 +26,7 @@ import {
   OfflineLibraryImportResult,
   OfflineStoryRecord,
   saveOfflineChapter,
+  updateOfflineChapterReaderPreferences as updateOfflineChapterReaderPreferencesRecord,
   updateOfflineChapterReaderScrollRatio as updateOfflineChapterReaderScrollRatioRecord,
 } from '../db/offline';
 import {
@@ -184,6 +185,10 @@ interface AppState {
   updateOfflineChapterReaderScrollRatio: (
     chapterId: number,
     readerScrollRatio: number,
+  ) => Promise<void>;
+  updateOfflineChapterReaderPreferences: (
+    chapterId: number,
+    input: { readerFontSize: number | null; readerIsHv: boolean | null },
   ) => Promise<void>;
   openOfflineChapterInReader: (chapterId: number) => void;
   setCurrentContentSource: (source: ReaderContentSource, offlineChapterId?: number | null) => void;
@@ -723,6 +728,18 @@ export const useAppStore = create<AppState>()(
           chapterId,
           readerScrollRatio,
         );
+        if (chapter) {
+          set((state) => ({
+            offlineChaptersByStory: upsertOfflineChapterInState(
+              state.offlineChaptersByStory,
+              chapter,
+            ),
+          }));
+        }
+      },
+
+      updateOfflineChapterReaderPreferences: async (chapterId, input) => {
+        const chapter = await updateOfflineChapterReaderPreferencesRecord(chapterId, input);
         if (chapter) {
           set((state) => ({
             offlineChaptersByStory: upsertOfflineChapterInState(

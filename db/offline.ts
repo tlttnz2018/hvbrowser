@@ -42,6 +42,8 @@ interface OfflineChapterTable {
   downloaded_at: string | null;
   last_opened_at: string | null;
   reader_scroll_ratio: number | null;
+  reader_font_size: number | null;
+  reader_is_hv: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -99,6 +101,8 @@ export interface OfflineChapterRecord {
   downloadedAt: string | null;
   lastOpenedAt: string | null;
   readerScrollRatio: number | null;
+  readerFontSize: number | null;
+  readerIsHv: boolean | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -114,6 +118,8 @@ export interface OfflineChapterBackupRecord {
   downloadedAt: string | null;
   lastOpenedAt: string | null;
   readerScrollRatio: number | null;
+  readerFontSize: number | null;
+  readerIsHv: boolean | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -132,6 +138,8 @@ export interface OfflineLibraryBackupChapter {
   downloadedAt: string | null;
   lastOpenedAt: string | null;
   readerScrollRatio?: number | null;
+  readerFontSize?: number | null;
+  readerIsHv?: boolean | null;
   createdAt: string;
   updatedAt: string;
   contentPath: string | null;
@@ -206,6 +214,8 @@ interface SaveOfflineChapterInput {
   downloadedAt?: string | null;
   lastOpenedAt?: string | null;
   readerScrollRatio?: number | null;
+  readerFontSize?: number | null;
+  readerIsHv?: boolean | null;
 }
 
 interface CreateEpubImportJobInput {
@@ -336,6 +346,15 @@ const migrations: Record<string, Migration> = {
         .execute();
     },
   },
+  '005_add_offline_chapter_reader_preferences': {
+    async up(db) {
+      await db.schema
+        .alterTable('offline_chapters')
+        .addColumn('reader_font_size', 'real')
+        .execute();
+      await db.schema.alterTable('offline_chapters').addColumn('reader_is_hv', 'integer').execute();
+    },
+  },
 };
 
 const migrationProvider: MigrationProvider = {
@@ -386,6 +405,8 @@ function mapOfflineChapterRow(row: OfflineChapterRow): OfflineChapterRecord {
     downloadedAt: row.downloaded_at,
     lastOpenedAt: row.last_opened_at ?? null,
     readerScrollRatio: row.reader_scroll_ratio ?? null,
+    readerFontSize: row.reader_font_size ?? null,
+    readerIsHv: row.reader_is_hv == null ? null : row.reader_is_hv !== 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -626,6 +647,10 @@ export async function saveOfflineChapter(
     input.readerScrollRatio !== undefined
       ? input.readerScrollRatio
       : (existing?.readerScrollRatio ?? null);
+  const readerFontSize =
+    input.readerFontSize !== undefined ? input.readerFontSize : (existing?.readerFontSize ?? null);
+  const readerIsHv =
+    input.readerIsHv !== undefined ? input.readerIsHv : (existing?.readerIsHv ?? null);
 
   await offlineDb
     .insertInto('offline_chapters')
@@ -641,6 +666,8 @@ export async function saveOfflineChapter(
       downloaded_at: downloadedAt,
       last_opened_at: lastOpenedAt,
       reader_scroll_ratio: readerScrollRatio,
+      reader_font_size: readerFontSize,
+      reader_is_hv: readerIsHv == null ? null : readerIsHv ? 1 : 0,
       created_at: now,
       updated_at: now,
     })
@@ -656,6 +683,8 @@ export async function saveOfflineChapter(
         downloaded_at: downloadedAt,
         last_opened_at: lastOpenedAt,
         reader_scroll_ratio: readerScrollRatio,
+        reader_font_size: readerFontSize,
+        reader_is_hv: readerIsHv == null ? null : readerIsHv ? 1 : 0,
         updated_at: now,
       }),
     )
@@ -709,6 +738,8 @@ export async function listOfflineChapterBackupRecordsByStory(
       'downloaded_at',
       'last_opened_at',
       'reader_scroll_ratio',
+      'reader_font_size',
+      'reader_is_hv',
       'created_at',
       'updated_at',
     ])
@@ -728,6 +759,8 @@ export async function listOfflineChapterBackupRecordsByStory(
     downloadedAt: row.downloaded_at,
     lastOpenedAt: row.last_opened_at ?? null,
     readerScrollRatio: row.reader_scroll_ratio ?? null,
+    readerFontSize: row.reader_font_size ?? null,
+    readerIsHv: row.reader_is_hv == null ? null : row.reader_is_hv !== 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -773,6 +806,8 @@ export async function updateOfflineChapterStatus(
       | 'downloadedAt'
       | 'lastOpenedAt'
       | 'readerScrollRatio'
+      | 'readerFontSize'
+      | 'readerIsHv'
     >
   >,
 ): Promise<OfflineChapterRecord | null> {
@@ -801,6 +836,12 @@ export async function updateOfflineChapterStatus(
   if (payload?.readerScrollRatio !== undefined) {
     nextValues.reader_scroll_ratio = payload.readerScrollRatio;
   }
+  if (payload?.readerFontSize !== undefined) {
+    nextValues.reader_font_size = payload.readerFontSize;
+  }
+  if (payload?.readerIsHv !== undefined) {
+    nextValues.reader_is_hv = payload.readerIsHv == null ? null : payload.readerIsHv ? 1 : 0;
+  }
 
   await offlineDb.updateTable('offline_chapters').set(nextValues).where('id', '=', id).execute();
 
@@ -822,6 +863,30 @@ export async function updateOfflineChapterReaderScrollRatio(
     .updateTable('offline_chapters')
     .set({
       reader_scroll_ratio: safeRatio,
+      updated_at: new Date().toISOString(),
+    })
+    .where('id', '=', id)
+    .execute();
+
+  return getOfflineChapterById(id);
+}
+
+export async function updateOfflineChapterReaderPreferences(
+  id: number,
+  input: { readerFontSize: number | null; readerIsHv: boolean | null },
+): Promise<OfflineChapterRecord | null> {
+  await ensureOfflineDbReady();
+
+  const safeFontSize =
+    input.readerFontSize == null || !Number.isFinite(input.readerFontSize)
+      ? null
+      : Math.max(1, Math.min(4, Number(input.readerFontSize.toFixed(2))));
+
+  await offlineDb
+    .updateTable('offline_chapters')
+    .set({
+      reader_font_size: safeFontSize,
+      reader_is_hv: input.readerIsHv == null ? null : input.readerIsHv ? 1 : 0,
       updated_at: new Date().toISOString(),
     })
     .where('id', '=', id)

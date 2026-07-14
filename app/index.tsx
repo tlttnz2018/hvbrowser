@@ -86,6 +86,9 @@ export default function IndexScreen() {
   const savedReaderScrollPositionsRef = useRef<Record<number, { ratio: number; savedAt: number }>>(
     {},
   );
+  const savedReaderPreferencesRef = useRef<
+    Record<number, { fontSize: number; isHV: boolean; savedAt: number }>
+  >({});
   const { loadPage, loadOfflineChapter } = usePageLoader();
   const theme = useTheme();
   const styles = createStyles(theme);
@@ -111,11 +114,21 @@ export default function IndexScreen() {
   const updateOfflineChapterReaderScrollRatio = useAppStore(
     (s) => s.updateOfflineChapterReaderScrollRatio,
   );
+  const updateOfflineChapterReaderPreferences = useAppStore(
+    (s) => s.updateOfflineChapterReaderPreferences,
+  );
 
   const isHV = useWebPageStore((s) => s.isHV);
   const fullSite = useWebPageStore((s) => s.fullSite);
   const fontSize = useWebPageStore((s) => s.fontSize);
   const setMoreMenu = useWebPageStore((s) => s.setMoreMenu);
+  const readerSearchRequest = useWebPageStore((s) => s.readerSearchRequest);
+  const readerSearchJumpRequest = useWebPageStore((s) => s.readerSearchJumpRequest);
+  const readerSearchAutoJumpRequest = useWebPageStore((s) => s.readerSearchAutoJumpRequest);
+  const setReaderSearchResults = useWebPageStore((s) => s.setReaderSearchResults);
+  const setReaderSearchAutoResults = useWebPageStore((s) => s.setReaderSearchAutoResults);
+  const clearReaderSearchAutoJump = useWebPageStore((s) => s.clearReaderSearchAutoJump);
+  const hasReaderHtml = !!(isHV ? htmlHV : htmlOrig);
 
   useEffect(() => {
     currentOfflineChapterScrollRatioRef.current = currentOfflineChapter?.readerScrollRatio ?? null;
@@ -151,7 +164,7 @@ export default function IndexScreen() {
     theme.mode,
   ]);
 
-  const persistTxtReaderScrollRatio = useCallback(
+  const persistOfflineReaderScrollRatio = useCallback(
     (chapterId: number, ratio: number) => {
       const safeRatio = Math.max(0, Math.min(1, ratio));
       const previous = savedReaderScrollPositionsRef.current[chapterId];
@@ -171,11 +184,61 @@ export default function IndexScreen() {
       };
 
       updateOfflineChapterReaderScrollRatio(chapterId, safeRatio).catch((error) => {
-        console.error('TXT reader scroll save error:', error);
+        console.error('Offline reader scroll save error:', error);
       });
     },
     [updateOfflineChapterReaderScrollRatio],
   );
+
+  const persistOfflineReaderPreferences = useCallback(
+    (chapterId: number, nextFontSize: number, nextIsHV: boolean) => {
+      const safeFontSize = Math.max(1, Math.min(4, Number(nextFontSize.toFixed(2))));
+      const previous = savedReaderPreferencesRef.current[chapterId];
+      const now = Date.now();
+
+      if (
+        previous &&
+        now - previous.savedAt < 1000 &&
+        previous.fontSize === safeFontSize &&
+        previous.isHV === nextIsHV
+      ) {
+        return;
+      }
+
+      savedReaderPreferencesRef.current[chapterId] = {
+        fontSize: safeFontSize,
+        isHV: nextIsHV,
+        savedAt: now,
+      };
+
+      updateOfflineChapterReaderPreferences(chapterId, {
+        readerFontSize: safeFontSize,
+        readerIsHv: nextIsHV,
+      }).catch((error) => {
+        console.error('Offline reader preference save error:', error);
+      });
+    },
+    [updateOfflineChapterReaderPreferences],
+  );
+
+  useEffect(() => {
+    if (
+      currentContentSource !== 'offline' ||
+      !currentOfflineChapterId ||
+      (currentOfflineStory?.sourceType !== 'epub' && currentOfflineStory?.sourceType !== 'txt')
+    ) {
+      return;
+    }
+
+    persistOfflineReaderPreferences(currentOfflineChapterId, fontSize, isHV);
+  }, [
+    currentContentSource,
+    currentOfflineChapterId,
+    currentOfflineStory?.sourceType,
+    fontSize,
+    isHV,
+    persistOfflineReaderPreferences,
+  ]);
 
   useEffect(() => {
     if (webViewRef.current && fullSite) {
@@ -183,6 +246,61 @@ export default function IndexScreen() {
       webViewRef.current.injectJavaScript(script);
     }
   }, [fontSize, fullSite]);
+
+  useEffect(() => {
+    if (!readerSearchRequest) {
+      return;
+    }
+
+    if (!readerSearchRequest.query.trim()) {
+      setReaderSearchResults(readerSearchRequest.id, readerSearchRequest.query, []);
+      return;
+    }
+
+    if (!webViewRef.current || !hasReaderHtml) {
+      setReaderSearchResults(readerSearchRequest.id, readerSearchRequest.query, []);
+      return;
+    }
+
+    webViewRef.current.injectJavaScript(`
+      (function() {
+        if (window.__HVBROWSER_READER_SEARCH__RUN__) {
+          window.__HVBROWSER_READER_SEARCH__RUN__(
+            ${JSON.stringify(readerSearchRequest.id)},
+            ${JSON.stringify(readerSearchRequest.query)}
+          );
+        }
+        return true;
+      })();
+    `);
+  }, [hasReaderHtml, readerSearchRequest, setReaderSearchResults]);
+
+  useEffect(() => {
+    if (!readerSearchJumpRequest || !webViewRef.current) {
+      return;
+    }
+
+    webViewRef.current.injectJavaScript(`
+      (function() {
+        if (window.__HVBROWSER_READER_SEARCH__JUMP__) {
+          var jumped = window.__HVBROWSER_READER_SEARCH__JUMP__(
+            ${JSON.stringify(readerSearchJumpRequest.resultId)}
+          );
+          if (
+            !jumped &&
+            window.__HVBROWSER_READER_SEARCH__JUMP_TO_QUERY__ &&
+            ${JSON.stringify(readerSearchJumpRequest.query)}.trim()
+          ) {
+            window.__HVBROWSER_READER_SEARCH__JUMP_TO_QUERY__(
+              ${JSON.stringify(readerSearchJumpRequest.query)},
+              ${JSON.stringify(readerSearchJumpRequest.resultIndex ?? 0)}
+            );
+          }
+        }
+        return true;
+      })();
+    `);
+  }, [readerSearchJumpRequest]);
 
   const initialScript = `
     (function() {
@@ -249,6 +367,171 @@ export default function IndexScreen() {
           event.preventDefault();
         }
       }, true);
+      if (!window.__HVBROWSER_READER_SEARCH__) {
+        window.__HVBROWSER_READER_SEARCH__ = true;
+        window.__HVBROWSER_READER_SEARCH_MATCHES__ = {};
+        var searchStyle = document.createElement('style');
+        searchStyle.textContent = '.hv-reader-search-hit { background: rgba(255, 214, 102, 0.55) !important; outline: 2px solid rgba(224, 159, 0, 0.9) !important; border-radius: 3px !important; }';
+        document.head.appendChild(searchStyle);
+        var normalizeHvSearch = function(value) {
+          return String(value || '').toLowerCase().replace(/\\s+/g, ' ').trim();
+        };
+        var normalizeChineseSearch = function(value) {
+          return String(value || '').replace(/\\s+/g, '');
+        };
+        var hasChinese = function(value) {
+          return /[\\u3400-\\u9fff\\uf900-\\ufaff]/.test(value || '');
+        };
+        var collectReaderSearchTokens = function() {
+          var tokens = [];
+          var root = document.body;
+          var visit = function(node) {
+            if (!node) return;
+            if (node.nodeType === 1) {
+              var element = node;
+              var tagName = (element.tagName || '').toLowerCase();
+              if (tagName === 'script' || tagName === 'style' || element.id === 'hv-tooltip') {
+                return;
+              }
+              if (element.classList && element.classList.contains('hv-word')) {
+                var visible = element.textContent || '';
+                var original = element.getAttribute('data-original') || '';
+                var lines = original.split('\\n');
+                var chinese = hasChinese(visible) ? visible : (lines[0] || visible);
+                var hanViet = hasChinese(visible) ? (lines[lines.length - 1] || visible) : visible;
+                tokens.push({ visible: visible, chinese: chinese, hanViet: hanViet, target: element });
+                return;
+              }
+              var children = element.childNodes || [];
+              for (var childIndex = 0; childIndex < children.length; childIndex += 1) {
+                visit(children[childIndex]);
+              }
+              return;
+            }
+            if (node.nodeType === 3) {
+              var text = node.nodeValue || '';
+              if (!text.trim()) return;
+              tokens.push({
+                visible: text,
+                chinese: text,
+                hanViet: text,
+                target: node.parentElement || document.body
+              });
+            }
+          };
+          visit(root);
+          return tokens;
+        };
+        var appendIndexText = function(index, text, tokenIndex, keepSpaces) {
+          var normalized = keepSpaces ? normalizeHvSearch(text) : normalizeChineseSearch(text);
+          if (!normalized) return;
+          if (keepSpaces && index.text && index.text.charAt(index.text.length - 1) !== ' ') {
+            index.text += ' ';
+            index.map.push(tokenIndex);
+          }
+          for (var charIndex = 0; charIndex < normalized.length; charIndex += 1) {
+            index.text += normalized.charAt(charIndex);
+            index.map.push(tokenIndex);
+          }
+        };
+        var buildSearchIndex = function(tokens, key, keepSpaces) {
+          var index = { text: '', map: [] };
+          for (var tokenIndex = 0; tokenIndex < tokens.length; tokenIndex += 1) {
+            appendIndexText(index, tokens[tokenIndex][key], tokenIndex, keepSpaces);
+          }
+          return index;
+        };
+        var buildSearchSnippet = function(tokens, tokenIndex) {
+          var start = Math.max(0, tokenIndex - 6);
+          var end = Math.min(tokens.length, tokenIndex + 12);
+          var snippet = '';
+          for (var index = start; index < end; index += 1) {
+            snippet += tokens[index].visible;
+            if (tokens[index].visible && !/\\s$/.test(tokens[index].visible)) {
+              snippet += ' ';
+            }
+          }
+          return snippet.replace(/\\s+/g, ' ').trim().slice(0, 120);
+        };
+        var collectIndexMatches = function(searchIndex, query, tokens, matchType, seen, results) {
+          if (!query) return;
+          var startAt = 0;
+          while (results.length < 80) {
+            var foundAt = searchIndex.text.indexOf(query, startAt);
+            if (foundAt < 0) break;
+            var tokenIndex = searchIndex.map[foundAt];
+            var token = tokens[tokenIndex];
+            var target = token && token.target;
+            if (target) {
+              var seenKey = matchType + ':' + tokenIndex + ':' + foundAt;
+              if (!seen[seenKey]) {
+                seen[seenKey] = true;
+                var id = 'reader-search-' + results.length + '-' + Date.now();
+                window.__HVBROWSER_READER_SEARCH_MATCHES__[id] = target;
+                results.push({
+                  id: id,
+                  label: matchType === 'chinese' ? 'Chinese match' : 'Han-Viet match',
+                  matchType: matchType === 'chinese' ? 'chinese' : 'han-viet',
+                  snippet: buildSearchSnippet(tokens, tokenIndex)
+                });
+              }
+            }
+            startAt = foundAt + Math.max(1, query.length);
+          }
+        };
+        window.__HVBROWSER_READER_SEARCH__RUN__ = function(requestId, query) {
+          window.__HVBROWSER_READER_SEARCH_MATCHES__ = {};
+          var tokens = collectReaderSearchTokens();
+          var chineseIndex = buildSearchIndex(tokens, 'chinese', false);
+          var hvIndex = buildSearchIndex(tokens, 'hanViet', true);
+          var results = [];
+          var seen = {};
+          collectIndexMatches(chineseIndex, normalizeChineseSearch(query), tokens, 'chinese', seen, results);
+          collectIndexMatches(hvIndex, normalizeHvSearch(query), tokens, 'han-viet', seen, results);
+          if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'reader-search-results',
+              requestId: requestId,
+              query: query,
+              results: results
+            }));
+          }
+        };
+        window.__HVBROWSER_READER_SEARCH__JUMP__ = function(resultId) {
+          var existing = document.querySelector('.hv-reader-search-hit');
+          if (existing) existing.classList.remove('hv-reader-search-hit');
+          var target = window.__HVBROWSER_READER_SEARCH_MATCHES__[resultId];
+          if (!target) return false;
+          target.classList.add('hv-reader-search-hit');
+          if (target.scrollIntoView) {
+            target.scrollIntoView({ block: 'center', inline: 'nearest' });
+          }
+          return true;
+        };
+        window.__HVBROWSER_READER_SEARCH__JUMP_TO_QUERY__ = function(query, occurrenceIndex) {
+          window.__HVBROWSER_READER_SEARCH_MATCHES__ = {};
+          var tokens = collectReaderSearchTokens();
+          var chineseIndex = buildSearchIndex(tokens, 'chinese', false);
+          var hvIndex = buildSearchIndex(tokens, 'hanViet', true);
+          var results = [];
+          var seen = {};
+          collectIndexMatches(chineseIndex, normalizeChineseSearch(query), tokens, 'chinese', seen, results);
+          collectIndexMatches(hvIndex, normalizeHvSearch(query), tokens, 'han-viet', seen, results);
+          var activeIndex = Math.max(0, Math.min(results.length - 1, occurrenceIndex || 0));
+          var result = results[activeIndex];
+          if (result) {
+            window.__HVBROWSER_READER_SEARCH__JUMP__(result.id);
+          }
+          if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'reader-search-auto-results',
+              query: query,
+              activeIndex: result ? activeIndex : null,
+              results: results
+            }));
+          }
+        };
+      }
       return true;
     })();
   `;
@@ -260,6 +543,15 @@ export default function IndexScreen() {
           type?: string;
           url?: string;
           ratio?: number;
+          requestId?: number;
+          query?: string;
+          activeIndex?: number | null;
+          results?: Array<{
+            id: string;
+            label: string;
+            matchType: 'chinese' | 'han-viet';
+            snippet: string;
+          }>;
         };
         if (payload.type === 'page-press') {
           setMoreMenu(false);
@@ -278,8 +570,12 @@ export default function IndexScreen() {
             }
             const scrollRatio = Math.max(0, Math.min(1, payload.ratio));
             readerScrollPositionsRef.current[currentUrl] = scrollRatio;
-            if (currentOfflineStory?.sourceType === 'txt' && currentOfflineChapterId) {
-              persistTxtReaderScrollRatio(currentOfflineChapterId, scrollRatio);
+            if (
+              (currentOfflineStory?.sourceType === 'epub' ||
+                currentOfflineStory?.sourceType === 'txt') &&
+              currentOfflineChapterId
+            ) {
+              persistOfflineReaderScrollRatio(currentOfflineChapterId, scrollRatio);
             }
           }
           return;
@@ -289,6 +585,22 @@ export default function IndexScreen() {
           if (currentUrl && pendingReaderRestoreUrlRef.current === currentUrl) {
             pendingReaderRestoreUrlRef.current = null;
           }
+          return;
+        }
+
+        if (payload.type === 'reader-search-results') {
+          if (typeof payload.requestId === 'number') {
+            setReaderSearchResults(payload.requestId, payload.query ?? '', payload.results ?? []);
+          }
+          return;
+        }
+
+        if (payload.type === 'reader-search-auto-results') {
+          setReaderSearchAutoResults(
+            payload.query ?? '',
+            payload.results ?? [],
+            typeof payload.activeIndex === 'number' ? payload.activeIndex : null,
+          );
           return;
         }
 
@@ -317,7 +629,9 @@ export default function IndexScreen() {
       getOfflineChapterByUrlFromState,
       loadOfflineChapter,
       loadPage,
-      persistTxtReaderScrollRatio,
+      persistOfflineReaderScrollRatio,
+      setReaderSearchAutoResults,
+      setReaderSearchResults,
       setMoreMenu,
     ],
   );
@@ -428,6 +742,34 @@ export default function IndexScreen() {
     setPendingContentAnchor(null);
   }, [pendingContentAnchor, setPendingContentAnchor]);
 
+  const jumpToPendingReaderSearch = useCallback(() => {
+    if (
+      !webViewRef.current ||
+      !readerSearchAutoJumpRequest ||
+      !currentOfflineChapterId ||
+      readerSearchAutoJumpRequest.chapterId !== currentOfflineChapterId
+    ) {
+      return false;
+    }
+
+    const jumpRequest = readerSearchAutoJumpRequest;
+    const jumpScript = `
+      (function() {
+        if (window.__HVBROWSER_READER_SEARCH__JUMP_TO_QUERY__) {
+          window.__HVBROWSER_READER_SEARCH__JUMP_TO_QUERY__(
+            ${JSON.stringify(jumpRequest.query)},
+            ${JSON.stringify(jumpRequest.occurrenceIndex)}
+          );
+        }
+        return true;
+      })();
+    `;
+
+    webViewRef.current.injectJavaScript(jumpScript);
+    clearReaderSearchAutoJump(jumpRequest.id);
+    return true;
+  }, [clearReaderSearchAutoJump, currentOfflineChapterId, readerSearchAutoJumpRequest]);
+
   const loadingLabel =
     loadingStage === 'downloading'
       ? 'Downloading page'
@@ -446,11 +788,19 @@ export default function IndexScreen() {
   const handleLoadEnd = useCallback(() => {
     if (pendingContentAnchor) {
       restorePendingAnchor();
+    } else if (jumpToPendingReaderSearch()) {
+      // Search jumps should take precedence over stored scroll restoration.
     } else {
       restoreReaderScrollPosition();
     }
     setLoading(false);
-  }, [pendingContentAnchor, restorePendingAnchor, restoreReaderScrollPosition, setLoading]);
+  }, [
+    jumpToPendingReaderSearch,
+    pendingContentAnchor,
+    restorePendingAnchor,
+    restoreReaderScrollPosition,
+    setLoading,
+  ]);
 
   return (
     <View style={styles.screen}>

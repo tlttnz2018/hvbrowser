@@ -219,6 +219,8 @@ function buildBackupStory(
       downloadedAt: chapter.downloadedAt,
       lastOpenedAt: chapter.lastOpenedAt,
       readerScrollRatio: chapter.readerScrollRatio,
+      readerFontSize: chapter.readerFontSize,
+      readerIsHv: chapter.readerIsHv,
       createdAt: chapter.createdAt,
       updatedAt: chapter.updatedAt,
       contentPath:
@@ -396,6 +398,8 @@ async function importBackupChapter(
       downloadedAt: existingChapter.downloadedAt,
       lastOpenedAt: chapter.lastOpenedAt ?? existingChapter.lastOpenedAt,
       readerScrollRatio: chapter.readerScrollRatio ?? existingChapter.readerScrollRatio,
+      readerFontSize: chapter.readerFontSize ?? existingChapter.readerFontSize,
+      readerIsHv: chapter.readerIsHv ?? existingChapter.readerIsHv,
     });
     return { imported: true, queued: false };
   }
@@ -420,6 +424,8 @@ async function importBackupChapter(
       nextStatus === 'downloaded' ? (chapter.downloadedAt ?? new Date().toISOString()) : null,
     lastOpenedAt: chapter.lastOpenedAt ?? existingChapter?.lastOpenedAt ?? null,
     readerScrollRatio: chapter.readerScrollRatio ?? existingChapter?.readerScrollRatio ?? null,
+    readerFontSize: chapter.readerFontSize ?? existingChapter?.readerFontSize ?? null,
+    readerIsHv: chapter.readerIsHv ?? existingChapter?.readerIsHv ?? null,
   });
 
   return {

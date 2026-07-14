@@ -16,7 +16,13 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { EpubImportJobRecord, OfflineChapterRecord, OfflineStoryRecord } from '../db/offline';
+import { useAppStore } from '../stores/useAppStore';
+import { type ReaderSearchResult, useWebPageStore } from '../stores/useWebPageStore';
 import { absoluteFill, Theme, useTheme } from '../theme';
+import {
+  findOfflineChapterTextMatch,
+  type OfflineChapterTextMatch,
+} from '../utils/offline-chapter-search';
 
 type OfflineViewMode = 'grouped' | 'chapters';
 type OfflineFilterKey = 'all' | 'downloading' | 'queued' | 'downloaded' | 'failed';
@@ -61,6 +67,7 @@ type ChapterRow = {
   kind: 'chapter';
   chapter: OfflineChapterRecord;
   storyName: string;
+  textMatch: OfflineChapterTextMatch | null;
 };
 
 type StickyRow = {
@@ -100,6 +107,65 @@ function statusColor(theme: Theme, status: OfflineChapterRecord['downloadStatus'
 
 function matchesChapterFilter(chapter: OfflineChapterRecord, filterKey: OfflineFilterKey) {
   return filterKey === 'all' || chapter.downloadStatus === filterKey;
+}
+
+function toReaderSearchMatchType(matchType: OfflineChapterTextMatch['matchType']) {
+  return matchType === 'Chinese' ? 'chinese' : 'han-viet';
+}
+
+function buildChapterSearchResults(rows: ChapterRow[]): ReaderSearchResult[] {
+  return rows.reduce<ReaderSearchResult[]>((results, row) => {
+    if (!row.textMatch) {
+      return results;
+    }
+
+    results.push({
+      id: `chapter-search-${row.chapter.id}-${row.textMatch.occurrenceIndex}`,
+      label: `${row.textMatch.matchType} text match`,
+      matchType: toReaderSearchMatchType(row.textMatch.matchType),
+      snippet: row.textMatch.snippet,
+      chapterId: row.chapter.id,
+      chapterName: row.chapter.chapterName,
+      occurrenceIndex: row.textMatch.occurrenceIndex,
+    });
+    return results;
+  }, []);
+}
+
+function buildChapterRow(
+  chapter: OfflineChapterRecord,
+  storyName: string,
+  rawQuery: string,
+  dictionary: Record<string, string>,
+): ChapterRow | null {
+  const query = rawQuery.trim();
+
+  if (!query) {
+    return {
+      id: `chapter-${chapter.id}`,
+      kind: 'chapter',
+      chapter,
+      storyName,
+      textMatch: null,
+    };
+  }
+
+  const metadataMatch = `${storyName} ${chapter.chapterName} ${chapter.chapterUrl}`
+    .toLowerCase()
+    .includes(query.toLowerCase());
+  const textMatch = findOfflineChapterTextMatch(chapter, query, dictionary);
+
+  if (!metadataMatch && !textMatch) {
+    return null;
+  }
+
+  return {
+    id: `chapter-${chapter.id}`,
+    kind: 'chapter',
+    chapter,
+    storyName,
+    textMatch,
+  };
 }
 
 function SwipeToDeleteCard({
@@ -250,6 +316,11 @@ export default function OfflineLibraryList({
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const styles = createStyles(theme);
+  const dictionary = useAppStore((state) => state.dictionary);
+  const requestReaderSearchAutoJump = useWebPageStore((state) => state.requestReaderSearchAutoJump);
+  const setReaderChapterSearchResults = useWebPageStore(
+    (state) => state.setReaderChapterSearchResults,
+  );
   const listRef = useRef<FlatList<ChapterListRow>>(null);
   const storyListRef = useRef<FlatList<StoryListRow>>(null);
   const storyChapterListRef = useRef<FlatList<ChapterRow>>(null);
@@ -278,9 +349,10 @@ export default function OfflineLibraryList({
     return 'Queue idle';
   }, [activeDownloadId, queueCount]);
 
-  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const rawSearchQuery = searchQuery.trim();
+  const normalizedQuery = rawSearchQuery.toLowerCase();
   const activeStory = stories.find((story) => story.id === activeStoryId) ?? null;
-  const storyNormalizedQuery = storySearchQuery.trim().toLowerCase();
+  const rawStorySearchQuery = storySearchQuery.trim();
   const activeStoryLastOpenedChapterId = useMemo(() => {
     if (!activeStory) {
       return null;
@@ -356,26 +428,17 @@ export default function OfflineLibraryList({
           return;
         }
 
-        if (
-          normalizedQuery &&
-          !`${story.name} ${chapter.chapterName} ${chapter.chapterUrl}`
-            .toLowerCase()
-            .includes(normalizedQuery)
-        ) {
+        const row = buildChapterRow(chapter, story.name, rawSearchQuery, dictionary);
+        if (!row) {
           return;
         }
 
-        rows.push({
-          id: `chapter-${chapter.id}`,
-          kind: 'chapter',
-          chapter,
-          storyName: story.name,
-        });
+        rows.push(row);
       });
     });
 
     return rows;
-  }, [chaptersByStory, filterKey, normalizedQuery, stories]);
+  }, [chaptersByStory, dictionary, filterKey, rawSearchQuery, stories]);
 
   const activeStoryChapterRows = useMemo<ChapterRow[]>(() => {
     if (!activeStory) {
@@ -388,26 +451,19 @@ export default function OfflineLibraryList({
           ? chapter.id === activeStoryLastOpenedChapterId
           : matchesChapterFilter(chapter, filterKey),
       )
-      .filter((chapter) => {
-        if (!storyNormalizedQuery) {
-          return true;
+      .reduce<ChapterRow[]>((rows, chapter) => {
+        const row = buildChapterRow(chapter, activeStory.name, rawStorySearchQuery, dictionary);
+        if (row) {
+          rows.push(row);
         }
-
-        return `${chapter.chapterName} ${chapter.chapterUrl}`
-          .toLowerCase()
-          .includes(storyNormalizedQuery);
-      })
-      .map((chapter) => ({
-        id: `chapter-${chapter.id}`,
-        kind: 'chapter',
-        chapter,
-        storyName: activeStory.name,
-      }));
+        return rows;
+      }, []);
   }, [
     activeStory,
     chaptersByStory,
+    dictionary,
     filterKey,
-    storyNormalizedQuery,
+    rawStorySearchQuery,
     storyLastOnly,
     activeStoryLastOpenedChapterId,
   ]);
@@ -544,7 +600,7 @@ export default function OfflineLibraryList({
             value={searchQuery}
             onChangeText={setSearchQuery}
             placeholder={
-              viewMode === 'grouped' ? 'Search stories or chapters' : 'Search all chapters'
+              viewMode === 'grouped' ? 'Search stories or chapters' : 'Search chapters or full text'
             }
             placeholderTextColor={theme.colors.inputPlaceholder}
             style={styles.searchInput}
@@ -658,7 +714,7 @@ export default function OfflineLibraryList({
   };
 
   const renderChapterCard = (row: ChapterRow) => {
-    const { chapter, storyName } = row;
+    const { chapter, storyName, textMatch } = row;
     const canOpen = chapter.downloadStatus === 'downloaded';
 
     const confirmRemoveChapter = () => {
@@ -680,6 +736,26 @@ export default function OfflineLibraryList({
           activeOpacity={canOpen ? 0.75 : 1}
           disabled={!canOpen}
           onPress={() => {
+            const query = activeStory ? storySearchQuery : searchQuery;
+            if (textMatch) {
+              const searchRows = activeStory ? activeStoryChapterRows : chapterRows;
+              const chapterSearchResults = buildChapterSearchResults(searchRows);
+              const activeSearchResultIndex = chapterSearchResults.findIndex(
+                (result) =>
+                  result.chapterId === chapter.id &&
+                  result.occurrenceIndex === textMatch.occurrenceIndex,
+              );
+              setReaderChapterSearchResults(
+                query,
+                chapterSearchResults,
+                activeSearchResultIndex >= 0 ? activeSearchResultIndex : null,
+              );
+              requestReaderSearchAutoJump({
+                chapterId: chapter.id,
+                query,
+                occurrenceIndex: textMatch.occurrenceIndex,
+              });
+            }
             closeStoryBrowser();
             onOpenChapter(chapter.id);
           }}
@@ -693,8 +769,13 @@ export default function OfflineLibraryList({
               {storyName}
             </Text>
             <Text numberOfLines={1} style={styles.chapterUrl}>
-              {chapter.chapterUrl}
+              {textMatch ? `${textMatch.matchType} text match` : chapter.chapterUrl}
             </Text>
+            {!!textMatch && (
+              <Text numberOfLines={2} style={styles.chapterSnippet}>
+                {textMatch.snippet}
+              </Text>
+            )}
             {!!chapter.downloadError && (
               <Text numberOfLines={2} style={styles.chapterError}>
                 {chapter.downloadError}
@@ -912,7 +993,7 @@ export default function OfflineLibraryList({
                   setStoryLastOnly(false);
                 }
               }}
-              placeholder="Search this story's chapters"
+              placeholder="Search chapters or full text"
               placeholderTextColor={theme.colors.inputPlaceholder}
               style={styles.storySearchInput}
             />
@@ -1268,6 +1349,11 @@ const createStyles = (theme: Theme) =>
       marginTop: 2,
       ...theme.typography.caption,
       color: theme.colors.textMuted,
+    },
+    chapterSnippet: {
+      marginTop: 4,
+      ...theme.typography.caption,
+      color: theme.colors.text,
     },
     chapterError: {
       marginTop: 4,
