@@ -178,7 +178,7 @@ function PopupMenu<T extends string>({
 }
 
 export default function LibraryView({ onDismiss }: LibraryViewProps) {
-  const { importEpub, loadPage, loadOfflineChapter } = usePageLoader();
+  const { importEpub, importTxt, loadPage, loadOfflineChapter } = usePageLoader();
   const theme = useTheme();
   const styles = createStyles(theme);
   const bookmarks = useAppStore((s) => s.bookmarks);
@@ -664,11 +664,26 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
               <FontAwesome6 name="book-open-reader" size={12} color={theme.colors.textAccent} />
               <Text style={styles.transferButtonText}>Import EPUB</Text>
             </Pressable>
+            <Pressable
+              accessibilityLabel="Import TXT file"
+              onPress={() => {
+                onDismiss?.();
+                void importTxt();
+              }}
+              disabled={offlineTransferBusy !== null}
+              style={[
+                styles.transferButton,
+                offlineTransferBusy !== null && styles.transferButtonDisabled,
+              ]}
+            >
+              <FontAwesome6 name="file-lines" size={12} color={theme.colors.textAccent} />
+              <Text style={styles.transferButtonText}>Import TXT</Text>
+            </Pressable>
           </View>
         </View>
         <Text style={styles.sectionCaption}>
-          EPUB imports run in the background queue while backup ZIPs let you move the full offline
-          library between devices.
+          EPUB imports run in the background queue, TXT imports open directly in the reader, and
+          backup ZIPs move the full offline library between devices.
         </Text>
       </View>
     </Pressable>

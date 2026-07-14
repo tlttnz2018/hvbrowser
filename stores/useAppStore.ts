@@ -26,6 +26,7 @@ import {
   OfflineLibraryImportResult,
   OfflineStoryRecord,
   saveOfflineChapter,
+  updateOfflineChapterReaderScrollRatio as updateOfflineChapterReaderScrollRatioRecord,
 } from '../db/offline';
 import {
   sanitizeBookmarkUrl,
@@ -180,6 +181,10 @@ interface AppState {
   setEpubImportQueueRunning: (running: boolean) => void;
   setEpubImportLastError: (error: string | null) => void;
   markOfflineChapterOpened: (chapter: OfflineChapterRecord) => void;
+  updateOfflineChapterReaderScrollRatio: (
+    chapterId: number,
+    readerScrollRatio: number,
+  ) => Promise<void>;
   openOfflineChapterInReader: (chapterId: number) => void;
   setCurrentContentSource: (source: ReaderContentSource, offlineChapterId?: number | null) => void;
   openPageRolePicker: (action: PendingOfflineAction) => void;
@@ -712,6 +717,21 @@ export const useAppStore = create<AppState>()(
             chapter,
           ),
         })),
+
+      updateOfflineChapterReaderScrollRatio: async (chapterId, readerScrollRatio) => {
+        const chapter = await updateOfflineChapterReaderScrollRatioRecord(
+          chapterId,
+          readerScrollRatio,
+        );
+        if (chapter) {
+          set((state) => ({
+            offlineChaptersByStory: upsertOfflineChapterInState(
+              state.offlineChaptersByStory,
+              chapter,
+            ),
+          }));
+        }
+      },
 
       openOfflineChapterInReader: (chapterId) =>
         set({

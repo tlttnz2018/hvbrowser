@@ -218,6 +218,7 @@ function buildBackupStory(
       downloadError: chapter.downloadError,
       downloadedAt: chapter.downloadedAt,
       lastOpenedAt: chapter.lastOpenedAt,
+      readerScrollRatio: chapter.readerScrollRatio,
       createdAt: chapter.createdAt,
       updatedAt: chapter.updatedAt,
       contentPath:
@@ -268,7 +269,7 @@ function findMatchingRemoteStory(
   );
 }
 
-function findMatchingEpubStory(
+function findMatchingFileStory(
   stories: OfflineStoryRecord[],
   backupStory: OfflineLibraryBackupStory,
 ) {
@@ -278,7 +279,7 @@ function findMatchingEpubStory(
 
   return (
     stories.find((story) => {
-      if (story.sourceType !== 'epub') {
+      if (story.sourceType !== backupStory.sourceType) {
         return false;
       }
 
@@ -316,7 +317,7 @@ function findMatchingStory(stories: OfflineStoryRecord[], backupStory: OfflineLi
     return findMatchingRemoteStory(stories, backupStory);
   }
 
-  return findMatchingEpubStory(stories, backupStory);
+  return findMatchingFileStory(stories, backupStory);
 }
 
 async function prepareStoryImportContext(
@@ -394,6 +395,7 @@ async function importBackupChapter(
       downloadError: existingChapter.downloadError,
       downloadedAt: existingChapter.downloadedAt,
       lastOpenedAt: chapter.lastOpenedAt ?? existingChapter.lastOpenedAt,
+      readerScrollRatio: chapter.readerScrollRatio ?? existingChapter.readerScrollRatio,
     });
     return { imported: true, queued: false };
   }
@@ -417,6 +419,7 @@ async function importBackupChapter(
     downloadedAt:
       nextStatus === 'downloaded' ? (chapter.downloadedAt ?? new Date().toISOString()) : null,
     lastOpenedAt: chapter.lastOpenedAt ?? existingChapter?.lastOpenedAt ?? null,
+    readerScrollRatio: chapter.readerScrollRatio ?? existingChapter?.readerScrollRatio ?? null,
   });
 
   return {

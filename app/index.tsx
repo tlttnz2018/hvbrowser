@@ -82,6 +82,10 @@ export default function IndexScreen() {
   const webViewRef = useRef<WebView>(null);
   const readerScrollPositionsRef = useRef<Record<string, number>>({});
   const pendingReaderRestoreUrlRef = useRef<string | null>(null);
+  const currentOfflineChapterScrollRatioRef = useRef<number | null>(null);
+  const savedReaderScrollPositionsRef = useRef<Record<number, { ratio: number; savedAt: number }>>(
+    {},
+  );
   const { loadPage, loadOfflineChapter } = usePageLoader();
   const theme = useTheme();
   const styles = createStyles(theme);
@@ -92,19 +96,30 @@ export default function IndexScreen() {
   const htmlHV = useAppStore((s) => s.htmlHV);
   const currentUrl = useAppStore((s) => s.currentUrl);
   const currentContentSource = useAppStore((s) => s.currentContentSource);
+  const currentOfflineChapterId = useAppStore((s) => s.currentOfflineChapterId);
   const pendingContentAnchor = useAppStore((s) => s.pendingContentAnchor);
   const getOfflineChapterByUrlFromState = useAppStore((s) => s.getOfflineChapterByUrlFromState);
+  const currentOfflineChapter = useAppStore((s) =>
+    s.currentOfflineChapterId ? s.getOfflineChapterByIdFromState(s.currentOfflineChapterId) : null,
+  );
   const currentOfflineStory = useAppStore((s) => s.getCurrentOfflineStoryFromState());
   const dictionary = useAppStore((s) => s.dictionary);
   const pinyinDictionary = useAppStore((s) => s.pinyinDictionary);
   const setLoading = useAppStore((s) => s.setLoading);
   const setLoadingStage = useAppStore((s) => s.setLoadingStage);
   const setPendingContentAnchor = useAppStore((s) => s.setPendingContentAnchor);
+  const updateOfflineChapterReaderScrollRatio = useAppStore(
+    (s) => s.updateOfflineChapterReaderScrollRatio,
+  );
 
   const isHV = useWebPageStore((s) => s.isHV);
   const fullSite = useWebPageStore((s) => s.fullSite);
   const fontSize = useWebPageStore((s) => s.fontSize);
   const setMoreMenu = useWebPageStore((s) => s.setMoreMenu);
+
+  useEffect(() => {
+    currentOfflineChapterScrollRatioRef.current = currentOfflineChapter?.readerScrollRatio ?? null;
+  }, [currentOfflineChapter?.readerScrollRatio]);
 
   useEffect(() => {
     if (fullSite || !currentUrl) {
@@ -117,7 +132,13 @@ export default function IndexScreen() {
       return;
     }
 
-    const scrollRatio = readerScrollPositionsRef.current[currentUrl];
+    const scrollRatio =
+      readerScrollPositionsRef.current[currentUrl] ??
+      currentOfflineChapterScrollRatioRef.current ??
+      null;
+    if (scrollRatio != null && Number.isFinite(scrollRatio)) {
+      readerScrollPositionsRef.current[currentUrl] = scrollRatio;
+    }
     pendingReaderRestoreUrlRef.current =
       scrollRatio != null && Number.isFinite(scrollRatio) ? currentUrl : null;
   }, [
@@ -129,6 +150,32 @@ export default function IndexScreen() {
     pendingContentAnchor,
     theme.mode,
   ]);
+
+  const persistTxtReaderScrollRatio = useCallback(
+    (chapterId: number, ratio: number) => {
+      const safeRatio = Math.max(0, Math.min(1, ratio));
+      const previous = savedReaderScrollPositionsRef.current[chapterId];
+      const now = Date.now();
+
+      if (
+        previous &&
+        now - previous.savedAt < 1000 &&
+        Math.abs(previous.ratio - safeRatio) < 0.005
+      ) {
+        return;
+      }
+
+      savedReaderScrollPositionsRef.current[chapterId] = {
+        ratio: safeRatio,
+        savedAt: now,
+      };
+
+      updateOfflineChapterReaderScrollRatio(chapterId, safeRatio).catch((error) => {
+        console.error('TXT reader scroll save error:', error);
+      });
+    },
+    [updateOfflineChapterReaderScrollRatio],
+  );
 
   useEffect(() => {
     if (webViewRef.current && fullSite) {
@@ -229,7 +276,11 @@ export default function IndexScreen() {
             if (pendingReaderRestoreUrlRef.current === currentUrl) {
               return;
             }
-            readerScrollPositionsRef.current[currentUrl] = Math.max(0, Math.min(1, payload.ratio));
+            const scrollRatio = Math.max(0, Math.min(1, payload.ratio));
+            readerScrollPositionsRef.current[currentUrl] = scrollRatio;
+            if (currentOfflineStory?.sourceType === 'txt' && currentOfflineChapterId) {
+              persistTxtReaderScrollRatio(currentOfflineChapterId, scrollRatio);
+            }
           }
           return;
         }
@@ -261,9 +312,12 @@ export default function IndexScreen() {
     [
       currentUrl,
       fullSite,
+      currentOfflineChapterId,
+      currentOfflineStory?.sourceType,
       getOfflineChapterByUrlFromState,
       loadOfflineChapter,
       loadPage,
+      persistTxtReaderScrollRatio,
       setMoreMenu,
     ],
   );

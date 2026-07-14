@@ -12,6 +12,7 @@ import { cleanupHtml } from '../utils/cleanup';
 import { convertHtmlPageToHV, downloadHtmlPage, extractHtmlTitle } from '../utils/downloader';
 import { queueEpubImportFromPicker } from '../utils/epub-import-queue';
 import { fixUrl } from '../utils/normalize-url';
+import { importTxtFromPicker } from '../utils/txt-import';
 import { injectBaseHref } from '../utils/webview-html';
 
 interface LoadPageOptions {
@@ -58,16 +59,18 @@ export function usePageLoader() {
         return;
       }
       const currentState = useAppStore.getState();
-      const openingEpubChapter = chapter.chapterUrl.startsWith('epub://');
-      const alreadyInEpubSession =
+      const openingLocalFileChapter =
+        chapter.chapterUrl.startsWith('epub://') || chapter.chapterUrl.startsWith('txt://');
+      const alreadyInLocalFileSession =
         currentState.currentContentSource === 'offline' &&
-        currentState.currentUrl.startsWith('epub://');
+        (currentState.currentUrl.startsWith('epub://') ||
+          currentState.currentUrl.startsWith('txt://'));
 
       if (!options?.skipHistory) {
         pushCurrentHistory();
       }
 
-      if (openingEpubChapter && !alreadyInEpubSession) {
+      if (openingLocalFileChapter && !alreadyInLocalFileSession) {
         setFullSite(false);
       }
 
@@ -147,9 +150,10 @@ export function usePageLoader() {
 
       const currentUrl = useAppStore.getState().currentUrl;
       const url = fixUrl(currentUrl, rawUrl);
-      const offlineChapter = url.startsWith('epub://')
-        ? await resolveOfflineChapterForUrl(url)
-        : null;
+      const offlineChapter =
+        url.startsWith('epub://') || url.startsWith('txt://')
+          ? await resolveOfflineChapterForUrl(url)
+          : null;
 
       if (offlineChapter) {
         await loadOfflineChapter(offlineChapter.id, {
@@ -219,5 +223,12 @@ export function usePageLoader() {
     await queueEpubImportFromPicker();
   }, []);
 
-  return { importEpub, loadPage, loadOfflineChapter };
+  const importTxt = useCallback(async () => {
+    const result = await importTxtFromPicker();
+    if (result?.chapter) {
+      await loadOfflineChapter(result.chapter.id);
+    }
+  }, [loadOfflineChapter]);
+
+  return { importEpub, importTxt, loadPage, loadOfflineChapter };
 }
