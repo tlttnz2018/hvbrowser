@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Generated, Kysely, Migration, MigrationProvider, Migrator, Selectable } from 'kysely';
+import { Generated, Kysely, Selectable } from 'kysely';
+import { Migration, MigrationProvider, Migrator } from 'kysely/migration';
 
 import {
   getBookmarkFavicon,

@@ -1,4 +1,5 @@
-import { Generated, Kysely, Migration, MigrationProvider, Migrator, Selectable, sql } from 'kysely';
+import { Generated, Kysely, Selectable, sql } from 'kysely';
+import { Migration, MigrationProvider, Migrator } from 'kysely/migration';
 
 import { createExpoSqliteDatabase, ExpoSqliteDialect } from './expoSqliteDialect';
 
@@ -7,13 +8,7 @@ const DATABASE_NAME = 'hvbrowser.db';
 export type OfflineChapterStatus = 'queued' | 'downloading' | 'downloaded' | 'failed';
 export type OfflineStorySourceType = 'remote' | 'epub' | 'txt';
 export type EpubImportJobStatus =
-  | 'queued'
-  | 'extracting'
-  | 'parsing'
-  | 'importing'
-  | 'paused'
-  | 'completed'
-  | 'failed';
+  'queued' | 'extracting' | 'parsing' | 'importing' | 'paused' | 'completed' | 'failed';
 
 interface OfflineStoryTable {
   id: Generated<number>;
