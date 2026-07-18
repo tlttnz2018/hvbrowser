@@ -1,6 +1,10 @@
 import { FontAwesome6 } from '@expo/vector-icons';
 import { Directory, File, Paths } from 'expo-file-system';
-import { copyAsync as legacyCopyAsync } from 'expo-file-system/legacy';
+import {
+  copyAsync as legacyCopyAsync,
+  EncodingType,
+  writeAsStringAsync as legacyWriteAsStringAsync,
+} from 'expo-file-system/legacy';
 import React, { useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -76,6 +80,16 @@ function getExportTimestamp() {
 
 function ensureDirectory(directory: Directory) {
   directory.create({ idempotent: true, intermediates: true });
+}
+
+function createFileInDirectory(directory: Directory, fileName: string, mimeType: string) {
+  if (typeof directory.createFile === 'function') {
+    return directory.createFile(fileName, mimeType);
+  }
+
+  const file = new File(directory, fileName);
+  file.create({ overwrite: true, intermediates: true });
+  return file;
 }
 
 function sanitizeBackupFileName(fileName: string | undefined) {
@@ -416,13 +430,17 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
 
     try {
       setBookmarkTransferBusy('export');
-      const destinationDirectory = await Directory.pickDirectoryAsync();
-      const exportFile = destinationDirectory.createFile(
+      const pickedDirectory = await Directory.pickDirectoryAsync();
+      const destinationDirectory = new Directory(pickedDirectory.uri);
+      const exportFile = createFileInDirectory(
+        destinationDirectory,
         `hvbrowser-bookmarks-${getExportTimestamp()}.json`,
         'application/json',
       );
 
-      exportFile.write(await exportBookmarksBackup());
+      await legacyWriteAsStringAsync(exportFile.uri, await exportBookmarksBackup(), {
+        encoding: EncodingType.UTF8,
+      });
 
       Alert.alert(
         'Bookmarks exported',

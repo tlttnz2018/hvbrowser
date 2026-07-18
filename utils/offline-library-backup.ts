@@ -1,4 +1,9 @@
 import { Directory, File, Paths } from 'expo-file-system';
+import {
+  EncodingType,
+  readAsStringAsync as legacyReadAsStringAsync,
+  writeAsStringAsync as legacyWriteAsStringAsync,
+} from 'expo-file-system/legacy';
 import { Unzip, UnzipInflate, Zip, ZipDeflate, ZipPassThrough } from 'fflate';
 
 import {
@@ -40,6 +45,25 @@ function ensureDirectory(directory: Directory) {
 
 function ensureParentDirectory(file: File) {
   ensureDirectory(file.parentDirectory);
+}
+
+function createFileInDirectory(directory: Directory, fileName: string, mimeType: string) {
+  if (typeof directory.createFile === 'function') {
+    return directory.createFile(fileName, mimeType);
+  }
+
+  const file = new File(directory, fileName);
+  file.create({ overwrite: true, intermediates: true });
+  return file;
+}
+
+async function copyBinaryFileContents(source: File, destination: File) {
+  const contents = await legacyReadAsStringAsync(source.uri, {
+    encoding: EncodingType.Base64,
+  });
+  await legacyWriteAsStringAsync(destination.uri, contents, {
+    encoding: EncodingType.Base64,
+  });
 }
 
 function getExportTimestamp() {
@@ -598,8 +622,8 @@ export async function exportOfflineLibraryBackup(destinationDirectory: Directory
       }
     });
 
-    exportFile = destinationDirectory.createFile(exportFileName, 'application/zip');
-    exportFile.write(await tempFile.bytes());
+    exportFile = createFileInDirectory(destinationDirectory, exportFileName, 'application/zip');
+    await copyBinaryFileContents(tempFile, exportFile);
   } catch (error) {
     if (exportFile?.exists) {
       try {
