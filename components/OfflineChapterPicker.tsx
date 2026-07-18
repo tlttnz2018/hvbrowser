@@ -1,9 +1,11 @@
 import { FontAwesome6 } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { OfflineChapterCandidate } from '../stores/useAppStore';
 import { absoluteFill, Theme, useTheme } from '../theme';
+import { getBottomInsetWithSystemBarPadding } from '../utils/safe-area';
 import SegmentedControl from './buttons/SegmentedControl';
 
 interface OfflineChapterPickerProps {
@@ -49,6 +51,9 @@ export default function OfflineChapterPicker({
   onSubmit,
 }: OfflineChapterPickerProps) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const bottomInset = getBottomInsetWithSystemBarPadding(insets.bottom);
+  const sheetBottomPadding = bottomInset + theme.spacing.lg;
   const styles = createStyles(theme);
   const listRef = useRef<FlatList<OfflineChapterCandidate>>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -164,7 +169,7 @@ export default function OfflineChapterPicker({
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
       <View style={styles.layer}>
         <Pressable style={styles.backdrop} onPress={onClose} />
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { paddingBottom: sheetBottomPadding }]}>
           <View style={styles.header}>
             <Text style={styles.eyebrow}>Offline chapters</Text>
             <Text style={styles.title}>Choose chapters to queue</Text>

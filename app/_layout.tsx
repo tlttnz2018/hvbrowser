@@ -17,7 +17,7 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import BookmarkEditorModal from '../components/BookmarkEditorModal';
 import BookmarkToggleButton from '../components/buttons/BookmarkToggleButton';
@@ -163,90 +163,92 @@ export default function RootLayout() {
   }, [drawerWidth, drawerX, libraryDrawerOpen]);
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <StatusBar style={theme.statusBar} />
-      <View style={styles.controlBar}>
-        <View style={styles.leadingActions}>{!urlInputFocus && <LibraryToggleButton />}</View>
-        <View style={styles.urlInput}>
-          <SearchInput
-            placeholder="Input chinese website url"
-            url={safeCurrentUrl}
-            urlInputFocus={urlInputFocus}
-            onSubmit={loadPage}
-            onFocus={(isFocus) => {
-              setUrlInputFocus(isFocus);
-              if (isFocus) setLibraryDrawerOpen(false);
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+        <StatusBar style={theme.statusBar} />
+        <View style={styles.controlBar}>
+          <View style={styles.leadingActions}>{!urlInputFocus && <LibraryToggleButton />}</View>
+          <View style={styles.urlInput}>
+            <SearchInput
+              placeholder="Input chinese website url"
+              url={safeCurrentUrl}
+              urlInputFocus={urlInputFocus}
+              onSubmit={loadPage}
+              onFocus={(isFocus) => {
+                setUrlInputFocus(isFocus);
+                if (isFocus) setLibraryDrawerOpen(false);
+              }}
+              backButtonEnabled={!urlInputFocus && backButtonEnabled}
+              onBack={goBack}
+              fullSite={fullSite}
+              onToggleReaderMode={toggleCss}
+            />
+          </View>
+          <View style={styles.trailingActions}>
+            <HVToggleButton />
+            <BookmarkToggleButton />
+          </View>
+        </View>
+        <View style={styles.content}>
+          <Slot />
+          {!loading && <WebTextToolbar reloadPage={reloadPage} />}
+          {libraryDrawerOpen && (
+            <Pressable style={styles.drawerBackdrop} onPress={() => setLibraryDrawerOpen(false)} />
+          )}
+          <Animated.View
+            pointerEvents={libraryDrawerOpen ? 'auto' : 'none'}
+            style={[styles.drawer, { width: drawerWidth, transform: [{ translateX: drawerX }] }]}
+          >
+            <LibraryView onDismiss={() => setLibraryDrawerOpen(false)} />
+          </Animated.View>
+          <BookmarkEditorModal
+            visible={bookmarkEditorVisible}
+            draft={pendingBookmarkDraft}
+            onClose={closeBookmarkEditor}
+            onSubmit={savePendingBookmark}
+            onDelete={(draft) => {
+              const url = draft.originalUrl || draft.url;
+              Alert.alert('Remove bookmark?', draft.title || url, [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Remove',
+                  style: 'destructive',
+                  onPress: () => {
+                    closeBookmarkEditor();
+                    removeBookmark(url).catch((error) => {
+                      console.error('Bookmark removal error:', error);
+                    });
+                  },
+                },
+              ]);
             }}
-            backButtonEnabled={!urlInputFocus && backButtonEnabled}
-            onBack={goBack}
-            fullSite={fullSite}
-            onToggleReaderMode={toggleCss}
+          />
+          <OfflinePageRolePicker
+            visible={pageRolePickerVisible}
+            pageTitle={pendingOfflineAction?.pageTitle ?? 'Current page'}
+            initialRoles={pendingOfflineAction?.initialRoles ?? []}
+            onClose={dismissPageRolePicker}
+            onSubmit={confirmPageRoles}
+          />
+          <OfflineChapterPicker
+            visible={chapterPickerVisible}
+            pageTitle={pendingOfflineAction?.pageTitle ?? 'Current page'}
+            candidates={pendingOfflineAction?.chapterCandidates ?? []}
+            onClose={dismissChapterPicker}
+            onSubmit={enqueueSelectedChapters}
+          />
+          <OfflineStoryPicker
+            visible={storyPickerVisible}
+            pageTitle={pendingStoryResolution?.action.pageTitle ?? 'Current page'}
+            stories={offlineStories}
+            suggestedStoryId={pendingStoryResolution?.suggestedStoryId ?? null}
+            defaultStoryName={pendingStoryResolution?.defaultStoryName ?? 'Untitled story'}
+            onClose={dismissStoryPicker}
+            onSubmit={confirmStoryResolution}
           />
         </View>
-        <View style={styles.trailingActions}>
-          <HVToggleButton />
-          <BookmarkToggleButton />
-        </View>
-      </View>
-      <View style={styles.content}>
-        <Slot />
-        {!loading && <WebTextToolbar reloadPage={reloadPage} />}
-        {libraryDrawerOpen && (
-          <Pressable style={styles.drawerBackdrop} onPress={() => setLibraryDrawerOpen(false)} />
-        )}
-        <Animated.View
-          pointerEvents={libraryDrawerOpen ? 'auto' : 'none'}
-          style={[styles.drawer, { width: drawerWidth, transform: [{ translateX: drawerX }] }]}
-        >
-          <LibraryView onDismiss={() => setLibraryDrawerOpen(false)} />
-        </Animated.View>
-        <BookmarkEditorModal
-          visible={bookmarkEditorVisible}
-          draft={pendingBookmarkDraft}
-          onClose={closeBookmarkEditor}
-          onSubmit={savePendingBookmark}
-          onDelete={(draft) => {
-            const url = draft.originalUrl || draft.url;
-            Alert.alert('Remove bookmark?', draft.title || url, [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Remove',
-                style: 'destructive',
-                onPress: () => {
-                  closeBookmarkEditor();
-                  removeBookmark(url).catch((error) => {
-                    console.error('Bookmark removal error:', error);
-                  });
-                },
-              },
-            ]);
-          }}
-        />
-        <OfflinePageRolePicker
-          visible={pageRolePickerVisible}
-          pageTitle={pendingOfflineAction?.pageTitle ?? 'Current page'}
-          initialRoles={pendingOfflineAction?.initialRoles ?? []}
-          onClose={dismissPageRolePicker}
-          onSubmit={confirmPageRoles}
-        />
-        <OfflineChapterPicker
-          visible={chapterPickerVisible}
-          pageTitle={pendingOfflineAction?.pageTitle ?? 'Current page'}
-          candidates={pendingOfflineAction?.chapterCandidates ?? []}
-          onClose={dismissChapterPicker}
-          onSubmit={enqueueSelectedChapters}
-        />
-        <OfflineStoryPicker
-          visible={storyPickerVisible}
-          pageTitle={pendingStoryResolution?.action.pageTitle ?? 'Current page'}
-          stories={offlineStories}
-          suggestedStoryId={pendingStoryResolution?.suggestedStoryId ?? null}
-          defaultStoryName={pendingStoryResolution?.defaultStoryName ?? 'Untitled story'}
-          onClose={dismissStoryPicker}
-          onSubmit={confirmStoryResolution}
-        />
-      </View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 

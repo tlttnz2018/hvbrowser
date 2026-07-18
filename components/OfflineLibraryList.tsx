@@ -28,6 +28,7 @@ import {
   findOfflineChapterTextMatch,
   type OfflineChapterTextMatch,
 } from '../utils/offline-chapter-search';
+import { getBottomInsetWithSystemBarPadding } from '../utils/safe-area';
 
 type OfflineViewMode = 'grouped' | 'chapters';
 type OfflineFilterKey = 'all' | 'downloading' | 'queued' | 'downloaded' | 'failed';
@@ -283,13 +284,16 @@ function CompactSheet({
   children: React.ReactNode;
 }) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const bottomInset = getBottomInsetWithSystemBarPadding(insets.bottom);
+  const sheetBottomPadding = bottomInset + theme.spacing.lg;
   const styles = createStyles(theme);
 
   return (
     <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
       <View style={styles.layer}>
         <Pressable style={styles.backdrop} onPress={onClose} />
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { paddingBottom: sheetBottomPadding }]}>
           <View style={styles.sheetHeader}>
             <Text style={styles.sheetTitle}>{title}</Text>
             <Pressable onPress={onClose} style={styles.sheetClose}>
@@ -320,7 +324,9 @@ export default function OfflineLibraryList({
 }: OfflineLibraryListProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const bottomInset = getBottomInsetWithSystemBarPadding(insets.bottom);
   const styles = createStyles(theme);
+  const listContentStyle = [styles.content, { paddingBottom: bottomInset + theme.spacing.xl }];
   const dictionary = useAppStore((state) => state.dictionary);
   const requestReaderSearchAutoJump = useWebPageStore((state) => state.requestReaderSearchAutoJump);
   const setReaderChapterSearchResults = useWebPageStore(
@@ -945,7 +951,7 @@ export default function OfflineLibraryList({
           ref={storyListRef}
           data={storyListRows}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={listContentStyle}
           ListHeaderComponent={scrollHeader}
           stickyHeaderIndices={[1]}
           initialNumToRender={18}
@@ -979,7 +985,7 @@ export default function OfflineLibraryList({
           ref={listRef}
           data={chapterListRows}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={listContentStyle}
           ListHeaderComponent={scrollHeader}
           stickyHeaderIndices={[1]}
           initialNumToRender={20}
@@ -1206,7 +1212,7 @@ export default function OfflineLibraryList({
             ref={storyChapterListRef}
             data={activeStoryChapterRows}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.content}
+            contentContainerStyle={listContentStyle}
             initialNumToRender={24}
             maxToRenderPerBatch={30}
             removeClippedSubviews

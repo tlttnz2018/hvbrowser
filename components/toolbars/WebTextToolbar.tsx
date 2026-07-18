@@ -11,6 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getOfflineChapterById, type OfflineChapterRecord } from '../../db/offline';
 import { useOfflineDownloads } from '../../hooks/useOfflineDownloads';
@@ -22,6 +23,7 @@ import {
   findOfflineChapterTextMatch,
   type OfflineChapterTextMatch,
 } from '../../utils/offline-chapter-search';
+import { getBottomInsetWithSystemBarPadding } from '../../utils/safe-area';
 import SegmentedControl from '../buttons/SegmentedControl';
 import ToolbarButton from '../buttons/ToolbarButton';
 
@@ -79,6 +81,10 @@ function buildChapterSearchResults(rows: ContentsRow[]): ReaderSearchResult[] {
 
 export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const bottomInset = getBottomInsetWithSystemBarPadding(insets.bottom);
+  const toolbarBottom = bottomInset + theme.spacing.xl;
+  const sheetBottomPadding = bottomInset + theme.spacing.lg;
   const styles = createStyles(theme);
   const { startDownloadFromCurrentPage } = useOfflineDownloads();
   const { loadOfflineChapter } = usePageLoader();
@@ -359,7 +365,7 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
 
   return (
     <>
-      <View style={styles.container}>
+      <View style={[styles.container, { bottom: toolbarBottom }]}>
         {moreMenu && (
           <>
             {currentContentSource === 'remote' ? (
@@ -492,7 +498,7 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
       >
         <View style={styles.modalLayer}>
           <Pressable style={styles.modalBackdrop} onPress={() => setContentsVisible(false)} />
-          <View style={styles.contentsSheet}>
+          <View style={[styles.contentsSheet, { paddingBottom: sheetBottomPadding }]}>
             <View style={styles.contentsHeader}>
               <Text style={styles.contentsEyebrow}>Contents</Text>
               <View style={styles.contentsHeaderTopRow}>
@@ -665,7 +671,7 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
           style={styles.modalLayer}
         >
           <Pressable style={styles.modalBackdrop} onPress={() => setReaderSearchVisible(false)} />
-          <View style={styles.searchSheet}>
+          <View style={[styles.searchSheet, { paddingBottom: sheetBottomPadding }]}>
             <View style={styles.contentsHeader}>
               <Text style={styles.contentsEyebrow}>Reader Search</Text>
               <View style={styles.contentsHeaderTopRow}>
@@ -759,7 +765,6 @@ const createStyles = (theme: Theme) =>
     container: {
       position: 'absolute',
       right: 14,
-      bottom: 86,
       alignItems: 'flex-end',
       zIndex: 20,
     },

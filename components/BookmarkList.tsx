@@ -10,8 +10,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Theme, useTheme } from '../theme';
+import { getBottomInsetWithSystemBarPadding } from '../utils/safe-area';
 
 export interface SiteItem {
   uri?: ImageSourcePropType;
@@ -178,7 +180,10 @@ function BookmarkList({
   stickyHeaderComponent,
 }: BookmarkListProps) {
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const bottomInset = getBottomInsetWithSystemBarPadding(insets.bottom);
   const styles = createStyles(theme);
+  const listContentStyle = [styles.listContent, { paddingBottom: bottomInset + theme.spacing.xl }];
   const data = useMemo<SiteItem[]>(
     () =>
       items || [
@@ -227,7 +232,7 @@ function BookmarkList({
       data={rows}
       renderItem={renderListItem}
       keyExtractor={(item) => item.key}
-      contentContainerStyle={styles.listContent}
+      contentContainerStyle={listContentStyle}
       ListHeaderComponent={scrollHeaderComponent}
       stickyHeaderIndices={[1]}
     />

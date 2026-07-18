@@ -49,8 +49,10 @@ Read these only if needed:
 - Offline library state is metadata-only for chapters. Full `originalHtml` / `convertedHvHtml` should not live in Zustand except as the active `htmlOrig` / `htmlHV` reader pair.
 - Reader dictionary annotation must keep DOM payload small: `.hv-word` spans should carry Chinese character and segment metadata only; pinyin/HV/meaning belong to native lookup results.
 - Current-reader search results live in `useWebPageStore` as transient result metadata. The full text index is built in injected JS from the active DOM and should not be persisted or mirrored into Zustand.
+- Current-reader search highlights should cover every token in a matched phrase. Store target ranges in injected JS and scroll to the first target; do not collapse multi-word or multi-character matches to only the first token.
 - Cross-chapter search may call `getOfflineChapterById()` / `getOfflineChapterByUrl()` for full bodies, but component state should keep only `OfflineChapterTextMatch` snippets/results. Do not retain searched chapter HTML after each iteration.
 - Cross-chapter result jumps should use `readerSearchAutoJumpRequest`; the target chapter should open first, then active-DOM search/jump should run after WebView render.
+- Cross-chapter result lists must remain `readerSearchScope === 'chapters'` while the user navigates them. Installing chapter results should clear pending current-reader search requests, and late `reader-search-results` messages from the WebView must not overwrite chapter-scope results.
 - `TrungVietDictionary.sqlite` includes `hv`; app imports it as `TrungVietDictionary-v2.sqlite`. Bump the import name when the bundled schema changes.
 - `DataHanVietUni.json` is the merged Han-Viet character map. `newChinesePhienAm.json`, `PinyinData.json`, and `pinyin-pro` should stay removed unless the dictionary architecture changes.
 
@@ -65,7 +67,9 @@ Read these only if needed:
 - Resume UI drifts between the in-reader TOC and the offline library because one side used transient session state instead of persisted chapter-open timestamps.
 - Long reading sessions lag because offline library hydration or queue updates retain every downloaded chapter body in app state.
 - Search causes lag because chapter text search accumulates full chapter records, DOM tokens, or converted chapter text in long-lived state instead of retaining only snippets/result metadata.
+- Reader search visually highlights only the first word/character of a phrase because the match map stored a single DOM target instead of the full token span.
 - Cross-chapter search jumps land wrong because an occurrence index from offline text search was treated as a stable DOM offset instead of being re-resolved in the opened chapter.
+- Cross-chapter Prev/Next breaks because a stale current-reader WebView search response replaces chapter-scope results after the user opens a chapter result.
 - Dictionary lookup regresses if WebView spans reintroduce per-character pinyin/HV/tooltip payloads or if SQLite lookup stops selecting `hv`.
 
 ## Change Strategy

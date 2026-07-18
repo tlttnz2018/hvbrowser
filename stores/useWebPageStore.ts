@@ -145,8 +145,12 @@ export const useWebPageStore = create<WebPageState>()((set, get) => ({
     }),
 
   setReaderSearchResults: (id, query, results) => {
-    const request = get().readerSearchRequest;
+    const { readerSearchRequest: request, readerSearchScope } = get();
     if (!request || request.id !== id) {
+      return;
+    }
+
+    if (readerSearchScope === 'chapters') {
       return;
     }
 
@@ -161,6 +165,8 @@ export const useWebPageStore = create<WebPageState>()((set, get) => ({
 
   setReaderChapterSearchResults: (query, results, activeIndex) =>
     set({
+      readerSearchRequest: null,
+      readerSearchJumpRequest: null,
       readerSearchBusy: false,
       readerSearchQuery: query,
       readerSearchResults: results,

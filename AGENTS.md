@@ -113,9 +113,11 @@ For stable architectural decisions, prefer the ADR file over growing this sectio
 ### Reader Search
 
 - Search inside the current reader is WebView-local. `stores/useWebPageStore.ts` issues `readerSearchRequest` / jump requests, and injected JS in `app/index.tsx` builds a temporary token index from the active DOM.
+- Current-reader search highlights should cover every token in a matched phrase. Store and jump to match target ranges in injected JS; do not collapse a multi-word/multi-character match to only its first `.hv-word`.
 - Search across chapters is offline-library text search. It may call `getOfflineChapterById()` to inspect full chapter HTML, but it should keep only `OfflineChapterTextMatch` snippets in component state and release full chapter records after each iteration.
 - Do not add long-lived full-text indexes or arrays of chapter HTML to Zustand for search. If faster search is needed later, prefer a bounded/derived SQLite FTS table or a compact persisted index over keeping chapter bodies in memory.
 - Cross-chapter result jumps should use `readerSearchAutoJumpRequest` so opening the target chapter can search the active DOM and jump after WebView render, instead of trying to carry DOM offsets between chapters.
+- Cross-chapter result lists must stay in `readerSearchScope === 'chapters'` after opening a result. Clear or ignore pending current-reader search requests when installing chapter results so late `reader-search-results` WebView messages cannot replace the chapter list and break Prev/Next across chapters.
 
 ### Dictionary Lookup
 

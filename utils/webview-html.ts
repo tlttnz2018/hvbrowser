@@ -32,11 +32,17 @@ export function injectBaseHref(html: string, pageUrl: string): string {
   return `<head>${baseTag}</head>${html}`;
 }
 
-function buildReaderStyle(fontSize: number, readerTheme: Theme['reader']): string {
+function buildReaderStyle(
+  fontSize: number,
+  readerTheme: Theme['reader'],
+  safeAreaBottom = 0,
+): string {
+  const bottomPadding = 64 + safeAreaBottom;
+
   return [
     '<style>',
     `html, body { margin: 0 !important; padding: 0 !important; background: ${readerTheme.background} !important; color: ${readerTheme.text} !important; }`,
-    `body { padding: 16px 14px 24px !important; font-size: ${fontSize}em !important; line-height: 1.75 !important; word-break: break-word !important; }`,
+    `body { padding: 16px 14px ${bottomPadding}px !important; font-size: ${fontSize}em !important; line-height: 1.75 !important; word-break: break-word !important; }`,
     '* { max-width: 100% !important; box-sizing: border-box !important; }',
     'table { width: 100% !important; display: block !important; }',
     'tr, td, tbody, thead { display: block !important; width: 100% !important; }',
@@ -128,24 +134,27 @@ export function stripPresentationHtml(
   html: string,
   fontSize: number,
   readerTheme: Theme['reader'],
+  safeAreaBottom = 0,
 ): string {
   const output = stripPresentationMarkup(html);
-  return injectIntoHead(output, buildReaderStyle(fontSize, readerTheme));
+  return injectIntoHead(output, buildReaderStyle(fontSize, readerTheme, safeAreaBottom));
 }
 
 export function normalizeEpubFullSiteHtml(
   html: string,
   readerTheme: Theme['reader'],
   baseFontSizePx = 14,
+  safeAreaBottom = 0,
 ): string {
   if (!html) {
     return html;
   }
 
+  const bottomPadding = 64 + safeAreaBottom;
   const injected = [
     '<style>',
     `html, body { margin: 0 !important; padding: 0 !important; background: ${readerTheme.background} !important; color: ${readerTheme.text} !important; }`,
-    `body { padding: 16px 14px 24px !important; font-size: ${baseFontSizePx}px !important; line-height: 1.75 !important; word-break: break-word !important; }`,
+    `body { padding: 16px 14px ${bottomPadding}px !important; font-size: ${baseFontSizePx}px !important; line-height: 1.75 !important; word-break: break-word !important; }`,
     `body, body * { font-size: ${baseFontSizePx}px !important; line-height: 1.75 !important; }`,
     '* { max-width: 100% !important; box-sizing: border-box !important; }',
     'img, svg, video, canvas { max-width: 100% !important; height: auto !important; }',
@@ -316,6 +325,7 @@ export function stripPresentationHtmlWithHvDefinitions(
   fontSize: number,
   dictionary: Record<string, string>,
   readerTheme: Theme['reader'],
+  safeAreaBottom = 0,
 ): string {
   let segmentId = 0;
   const output = stripPresentationMarkup(html).replace(/>([^<>]+)</g, (_, text: string) => {
@@ -325,7 +335,7 @@ export function stripPresentationHtmlWithHvDefinitions(
   });
 
   const injected = [
-    buildReaderStyle(fontSize, readerTheme),
+    buildReaderStyle(fontSize, readerTheme, safeAreaBottom),
     buildDefinitionLookupEnhancements(),
   ].join('');
 
@@ -336,6 +346,7 @@ export function stripPresentationHtmlWithChineseDefinitions(
   html: string,
   fontSize: number,
   readerTheme: Theme['reader'],
+  safeAreaBottom = 0,
 ): string {
   let segmentId = 0;
   const output = stripPresentationMarkup(html).replace(/>([^<>]+)</g, (_, text: string) => {
@@ -345,7 +356,7 @@ export function stripPresentationHtmlWithChineseDefinitions(
   });
 
   const injected = [
-    buildReaderStyle(fontSize, readerTheme),
+    buildReaderStyle(fontSize, readerTheme, safeAreaBottom),
     buildDefinitionLookupEnhancements(),
   ].join('');
 

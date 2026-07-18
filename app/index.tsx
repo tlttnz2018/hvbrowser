@@ -23,6 +23,7 @@ import {
   findDefinitionByWord,
 } from '../utils/definition-dictionary';
 import { extractBaseUrl } from '../utils/normalize-url';
+import { getBottomInsetWithSystemBarPadding } from '../utils/safe-area';
 import {
   normalizeEpubFullSiteHtml,
   stripPresentationHtmlWithChineseDefinitions,
@@ -656,6 +657,25 @@ export default function IndexScreen() {
           }
           return snippet.replace(/\\s+/g, ' ').trim().slice(0, 120);
         };
+        var collectMatchTargets = function(tokens, startTokenIndex, endTokenIndex) {
+          if (typeof startTokenIndex !== 'number') {
+            return [];
+          }
+          var targets = [];
+          var safeStart = Math.max(0, startTokenIndex);
+          var safeEnd =
+            typeof endTokenIndex === 'number'
+              ? Math.max(safeStart, Math.min(tokens.length - 1, endTokenIndex))
+              : safeStart;
+          for (var index = safeStart; index <= safeEnd; index += 1) {
+            var token = tokens[index];
+            var target = token && token.target;
+            if (target && targets.indexOf(target) < 0) {
+              targets.push(target);
+            }
+          }
+          return targets;
+        };
         var collectIndexMatches = function(searchIndex, query, tokens, matchType, seen, results) {
           if (!query) return;
           var startAt = 0;
@@ -663,14 +683,18 @@ export default function IndexScreen() {
             var foundAt = searchIndex.text.indexOf(query, startAt);
             if (foundAt < 0) break;
             var tokenIndex = searchIndex.map[foundAt];
+            var endTokenIndex = searchIndex.map[Math.max(foundAt, foundAt + query.length - 1)];
             var token = tokens[tokenIndex];
-            var target = token && token.target;
-            if (target) {
+            var targets = collectMatchTargets(tokens, tokenIndex, endTokenIndex);
+            if (targets.length > 0) {
               var seenKey = matchType + ':' + tokenIndex + ':' + foundAt;
               if (!seen[seenKey]) {
                 seen[seenKey] = true;
                 var id = 'reader-search-' + results.length + '-' + Date.now();
-                window.__HVBROWSER_READER_SEARCH_MATCHES__[id] = target;
+                window.__HVBROWSER_READER_SEARCH_MATCHES__[id] = {
+                  targets: targets,
+                  scrollTarget: targets[0]
+                };
                 results.push({
                   id: id,
                   label: matchType === 'chinese' ? 'Chinese match' : 'Han-Viet match',
@@ -701,13 +725,21 @@ export default function IndexScreen() {
           }
         };
         window.__HVBROWSER_READER_SEARCH__JUMP__ = function(resultId) {
-          var existing = document.querySelector('.hv-reader-search-hit');
-          if (existing) existing.classList.remove('hv-reader-search-hit');
-          var target = window.__HVBROWSER_READER_SEARCH_MATCHES__[resultId];
-          if (!target) return false;
-          target.classList.add('hv-reader-search-hit');
-          if (target.scrollIntoView) {
-            target.scrollIntoView({ block: 'center', inline: 'nearest' });
+          var existing = document.querySelectorAll('.hv-reader-search-hit');
+          for (var index = 0; index < existing.length; index += 1) {
+            existing[index].classList.remove('hv-reader-search-hit');
+          }
+          var match = window.__HVBROWSER_READER_SEARCH_MATCHES__[resultId];
+          if (!match) return false;
+          var targets = match.targets || [match];
+          var scrollTarget = match.scrollTarget || targets[0];
+          for (var targetIndex = 0; targetIndex < targets.length; targetIndex += 1) {
+            if (targets[targetIndex] && targets[targetIndex].classList) {
+              targets[targetIndex].classList.add('hv-reader-search-hit');
+            }
+          }
+          if (scrollTarget && scrollTarget.scrollIntoView) {
+            scrollTarget.scrollIntoView({ block: 'center', inline: 'nearest' });
           }
           return true;
         };
@@ -920,15 +952,39 @@ export default function IndexScreen() {
   const activeHtml = isHV ? htmlHV : htmlOrig;
   const hasHtml = !!activeHtml;
   const isCurrentEpub = currentOfflineStory?.sourceType === 'epub';
+  const readerBottomInset = getBottomInsetWithSystemBarPadding(insets.bottom);
   const htmlSource = useMemo(() => {
     if (fullSite) {
-      return isCurrentEpub ? normalizeEpubFullSiteHtml(activeHtml, theme.reader) : activeHtml;
+      return isCurrentEpub
+        ? normalizeEpubFullSiteHtml(activeHtml, theme.reader, 14, readerBottomInset)
+        : activeHtml;
     }
 
     return isHV
-      ? stripPresentationHtmlWithHvDefinitions(htmlOrig, fontSize, dictionary, theme.reader)
-      : stripPresentationHtmlWithChineseDefinitions(htmlOrig, fontSize, theme.reader);
-  }, [activeHtml, dictionary, fontSize, fullSite, htmlOrig, isCurrentEpub, isHV, theme.reader]);
+      ? stripPresentationHtmlWithHvDefinitions(
+          htmlOrig,
+          fontSize,
+          dictionary,
+          theme.reader,
+          readerBottomInset,
+        )
+      : stripPresentationHtmlWithChineseDefinitions(
+          htmlOrig,
+          fontSize,
+          theme.reader,
+          readerBottomInset,
+        );
+  }, [
+    activeHtml,
+    dictionary,
+    fontSize,
+    fullSite,
+    htmlOrig,
+    isCurrentEpub,
+    isHV,
+    readerBottomInset,
+    theme.reader,
+  ]);
   const baseUrl =
     currentUrl && /^(https?:|file:)/i.test(currentUrl) ? extractBaseUrl(currentUrl) : undefined;
   const restoreReaderScrollPosition = useCallback(() => {
@@ -1044,7 +1100,7 @@ export default function IndexScreen() {
   ]);
 
   const definitionSheetHeight = Math.max(168, Math.min(300, windowHeight * 0.25));
-  const definitionSheetBottom = Math.max(insets.bottom + 12, 56);
+  const definitionSheetBottom = readerBottomInset + theme.spacing.md;
   const definitionWordIsSingle = definitionSheet
     ? getCharacterLength(definitionSheet.word) === 1
     : false;
