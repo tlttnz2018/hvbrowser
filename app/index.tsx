@@ -1,17 +1,86 @@
-import React, { useCallback, useEffect, useRef } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { FontAwesome6 } from '@expo/vector-icons';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, WebViewMessageEvent, WebViewNavigation } from 'react-native-webview';
 
 import { usePageLoader } from '../hooks/usePageLoader';
 import { useAppStore } from '../stores/useAppStore';
 import { useWebPageStore } from '../stores/useWebPageStore';
 import { absoluteFill, Theme, useTheme } from '../theme';
+import {
+  DefinitionEntry,
+  findBestDefinitionMatch,
+  findDefinitionByWord,
+} from '../utils/definition-dictionary';
 import { extractBaseUrl } from '../utils/normalize-url';
 import {
   normalizeEpubFullSiteHtml,
   stripPresentationHtmlWithChineseTooltips,
   stripPresentationHtmlWithHvTooltips,
 } from '../utils/webview-html';
+
+type DefinitionLookupMode = 'best' | 'exact';
+
+interface DefinitionLookupPayload {
+  type?: string;
+  url?: string;
+  ratio?: number;
+  requestId?: number;
+  query?: string;
+  activeIndex?: number | null;
+  lookupId?: string;
+  lookupMode?: DefinitionLookupMode;
+  chineseContext?: string;
+  characterIndex?: number;
+  selectedWord?: string;
+  selectedPinyin?: string;
+  selectedHanViet?: string;
+  selectedStart?: number;
+  selectedEnd?: number;
+  segmentLength?: number;
+  fallbackWord?: string;
+  fallbackPinyin?: string;
+  fallbackHanViet?: string;
+  results?: Array<{
+    id: string;
+    label: string;
+    matchType: 'chinese' | 'han-viet';
+    snippet: string;
+  }>;
+}
+
+interface DefinitionSheetState {
+  lookupId: string;
+  word: string;
+  pinyin: string;
+  hanViet: string;
+  meaning: string;
+  loading: boolean;
+  canPrev: boolean;
+  canNext: boolean;
+  canShrink: boolean;
+  canExpand: boolean;
+}
+
+interface DefinitionSelectionState {
+  word: string;
+  pinyin: string;
+  hanViet: string;
+  start: number;
+  end: number;
+  activeIndex: number;
+  segmentLength: number;
+}
 
 function buildFullSiteFontScript(fontSize: number): string {
   const fullSiteScale = 1 + (fontSize - 1) * 0.5;
@@ -78,6 +147,111 @@ function buildFullSiteFontScript(fontSize: number): string {
   `;
 }
 
+function getCharacterLength(value: string): number {
+  return Array.from(value || '').length;
+}
+
+function getSelectionControls(selection: DefinitionSelectionState) {
+  return {
+    canPrev: selection.activeIndex > 0,
+    canNext: selection.activeIndex < selection.segmentLength - 1,
+    canShrink: selection.end - selection.start > 1,
+    canExpand: selection.start > 0 || selection.end < selection.segmentLength,
+  };
+}
+
+function getInitialSelectionFromPayload(
+  payload: DefinitionLookupPayload,
+): DefinitionSelectionState {
+  const activeIndex =
+    typeof payload.characterIndex === 'number' && Number.isFinite(payload.characterIndex)
+      ? Math.max(0, Math.floor(payload.characterIndex))
+      : 0;
+  const segmentLength =
+    typeof payload.segmentLength === 'number' && Number.isFinite(payload.segmentLength)
+      ? Math.max(1, Math.floor(payload.segmentLength))
+      : Math.max(1, getCharacterLength(payload.chineseContext ?? payload.selectedWord ?? ''));
+  const start =
+    typeof payload.selectedStart === 'number' && Number.isFinite(payload.selectedStart)
+      ? Math.max(0, Math.floor(payload.selectedStart))
+      : activeIndex;
+  const end =
+    typeof payload.selectedEnd === 'number' && Number.isFinite(payload.selectedEnd)
+      ? Math.min(segmentLength, Math.max(start + 1, Math.floor(payload.selectedEnd)))
+      : Math.min(
+          segmentLength,
+          start + Math.max(1, getCharacterLength(payload.selectedWord ?? '')),
+        );
+
+  return {
+    word: payload.selectedWord ?? payload.fallbackWord ?? '',
+    pinyin: payload.selectedPinyin ?? payload.fallbackPinyin ?? '',
+    hanViet: payload.selectedHanViet ?? payload.fallbackHanViet ?? '',
+    start,
+    end,
+    activeIndex,
+    segmentLength,
+  };
+}
+
+function getSelectionForResult(
+  payload: DefinitionLookupPayload,
+  entry: DefinitionEntry | null,
+): DefinitionSelectionState {
+  const initial = getInitialSelectionFromPayload(payload);
+  const contextCharacters = Array.from(payload.chineseContext ?? '');
+  const entryCharacters = Array.from(entry?.word ?? '');
+
+  if (
+    payload.lookupMode !== 'exact' &&
+    entryCharacters.length > 0 &&
+    contextCharacters.length > 0
+  ) {
+    for (let start = 0; start <= contextCharacters.length - entryCharacters.length; start += 1) {
+      const end = start + entryCharacters.length;
+      if (start > initial.activeIndex || initial.activeIndex >= end) {
+        continue;
+      }
+      if (contextCharacters.slice(start, end).join('') === entry?.word) {
+        return {
+          ...initial,
+          word: entry.word,
+          pinyin: entry.pinyin,
+          start,
+          end,
+        };
+      }
+    }
+  }
+
+  return {
+    ...initial,
+    word: entry?.word ?? initial.word,
+    pinyin: entry?.pinyin ?? initial.pinyin,
+  };
+}
+
+function buildDefinitionSheetState(
+  lookupId: string,
+  entry: DefinitionEntry | null,
+  selection: DefinitionSelectionState,
+): DefinitionSheetState {
+  const controls = getSelectionControls(selection);
+  const hanViet = selection.hanViet;
+  const meaning =
+    entry?.meaning ?? (hanViet ? `Han-Viet: ${hanViet}` : 'No dictionary entry found.');
+
+  return {
+    lookupId,
+    word: selection.word,
+    pinyin: selection.pinyin,
+    hanViet,
+    meaning,
+    loading: false,
+    ...controls,
+  };
+}
+
 export default function IndexScreen() {
   const webViewRef = useRef<WebView>(null);
   const readerScrollPositionsRef = useRef<Record<string, number>>({});
@@ -92,6 +266,9 @@ export default function IndexScreen() {
   const { loadPage, loadOfflineChapter } = usePageLoader();
   const theme = useTheme();
   const styles = createStyles(theme);
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const [definitionSheet, setDefinitionSheet] = useState<DefinitionSheetState | null>(null);
 
   const loading = useAppStore((s) => s.loading);
   const loadingStage = useAppStore((s) => s.loadingStage);
@@ -539,20 +716,7 @@ export default function IndexScreen() {
   const handleMessage = useCallback(
     (event: WebViewMessageEvent) => {
       try {
-        const payload = JSON.parse(event.nativeEvent.data) as {
-          type?: string;
-          url?: string;
-          ratio?: number;
-          requestId?: number;
-          query?: string;
-          activeIndex?: number | null;
-          results?: Array<{
-            id: string;
-            label: string;
-            matchType: 'chinese' | 'han-viet';
-            snippet: string;
-          }>;
-        };
+        const payload = JSON.parse(event.nativeEvent.data) as DefinitionLookupPayload;
         if (payload.type === 'page-press') {
           setMoreMenu(false);
           return;
@@ -601,6 +765,65 @@ export default function IndexScreen() {
             payload.results ?? [],
             typeof payload.activeIndex === 'number' ? payload.activeIndex : null,
           );
+          return;
+        }
+
+        if (payload.type === 'definition-press' && payload.lookupId) {
+          const lookupPayload = payload;
+          const lookupId = payload.lookupId;
+          const initialSelection = getInitialSelectionFromPayload(lookupPayload);
+          setDefinitionSheet({
+            lookupId,
+            word: initialSelection.word,
+            pinyin: initialSelection.pinyin,
+            hanViet: initialSelection.hanViet,
+            meaning: 'Looking up...',
+            loading: true,
+            ...getSelectionControls(initialSelection),
+          });
+          void (async () => {
+            const entry =
+              lookupPayload.lookupMode === 'exact' && lookupPayload.selectedWord
+                ? await findDefinitionByWord(lookupPayload.selectedWord)
+                : typeof lookupPayload.chineseContext === 'string' &&
+                    typeof lookupPayload.characterIndex === 'number'
+                  ? await findBestDefinitionMatch(
+                      lookupPayload.chineseContext,
+                      lookupPayload.characterIndex,
+                    )
+                  : null;
+            const selection = getSelectionForResult(lookupPayload, entry);
+            setDefinitionSheet(buildDefinitionSheetState(lookupId, entry, selection));
+            const result: {
+              lookupId: string;
+              entry: DefinitionEntry | null;
+              fallback: { word: string; pinyin: string; hanViet: string; meaning: string };
+            } = {
+              lookupId,
+              entry,
+              fallback: {
+                word: selection.word,
+                pinyin: selection.pinyin,
+                hanViet: selection.hanViet,
+                meaning:
+                  entry?.meaning ??
+                  (selection.hanViet
+                    ? `Han-Viet: ${selection.hanViet}`
+                    : 'No dictionary entry found.'),
+              },
+            };
+
+            webViewRef.current?.injectJavaScript(`
+              (function() {
+                if (window.__HVBROWSER_DEFINITION_LOOKUP__SHOW__) {
+                  window.__HVBROWSER_DEFINITION_LOOKUP__SHOW__(${JSON.stringify(result)});
+                }
+                return true;
+              })();
+            `);
+          })().catch((error) => {
+            console.error('Definition lookup error:', error);
+          });
           return;
         }
 
@@ -802,6 +1025,46 @@ export default function IndexScreen() {
     setLoading,
   ]);
 
+  const definitionSheetHeight = Math.max(168, Math.min(300, windowHeight * 0.25));
+  const definitionSheetBottom = Math.max(insets.bottom + 12, 56);
+  const definitionWordIsSingle = definitionSheet
+    ? getCharacterLength(definitionSheet.word) === 1
+    : false;
+  const definitionLines = definitionSheet
+    ? definitionWordIsSingle
+      ? [
+          definitionSheet.pinyin ? `PYN: ${definitionSheet.pinyin}` : '',
+          definitionSheet.hanViet ? `HV: ${definitionSheet.hanViet}` : '',
+          definitionSheet.meaning,
+        ].filter((line): line is string => !!line)
+      : [definitionSheet.pinyin, definitionSheet.meaning].filter(Boolean)
+    : [];
+
+  const sendDefinitionAction = useCallback((action: 'prev' | 'next' | 'shrink' | 'expand') => {
+    webViewRef.current?.injectJavaScript(`
+      (function() {
+        if (window.__HVBROWSER_DEFINITION_LOOKUP__ACTION__) {
+          window.__HVBROWSER_DEFINITION_LOOKUP__ACTION__(${JSON.stringify(action)});
+        }
+        return true;
+      })();
+    `);
+  }, []);
+
+  const closeDefinitionSheet = useCallback(() => {
+    setDefinitionSheet(null);
+    setTimeout(() => {
+      webViewRef.current?.injectJavaScript(`
+        (function() {
+          if (window.__HVBROWSER_DEFINITION_LOOKUP__CLOSE__) {
+            window.__HVBROWSER_DEFINITION_LOOKUP__CLOSE__();
+          }
+          return true;
+        })();
+      `);
+    }, 32);
+  }, []);
+
   return (
     <View style={styles.screen}>
       {hasHtml && (
@@ -821,6 +1084,103 @@ export default function IndexScreen() {
           onNavigationStateChange={handleNavigationStateChange}
         />
       )}
+      <Modal
+        animationType="none"
+        transparent
+        visible={!!definitionSheet}
+        onRequestClose={closeDefinitionSheet}
+      >
+        <View style={styles.definitionModalLayer}>
+          <Pressable style={styles.definitionBackdrop} onPress={closeDefinitionSheet} />
+          {definitionSheet && (
+            <View
+              style={[
+                styles.definitionSheet,
+                { bottom: definitionSheetBottom, height: definitionSheetHeight },
+              ]}
+            >
+              <View style={styles.definitionHeader}>
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.definitionWord,
+                    definitionWordIsSingle && styles.definitionWordSingle,
+                  ]}
+                >
+                  {definitionSheet.word || 'Definition'}
+                </Text>
+                <View style={styles.definitionControls}>
+                  <Pressable
+                    accessibilityLabel="Previous character"
+                    disabled={!definitionSheet.canPrev || definitionSheet.loading}
+                    onPress={() => sendDefinitionAction('prev')}
+                    style={[
+                      styles.definitionButton,
+                      (!definitionSheet.canPrev || definitionSheet.loading) &&
+                        styles.definitionButtonDisabled,
+                    ]}
+                  >
+                    <FontAwesome6 name="chevron-left" size={14} color={theme.colors.text} />
+                  </Pressable>
+                  <Pressable
+                    accessibilityLabel="Reduce selected characters"
+                    disabled={!definitionSheet.canShrink || definitionSheet.loading}
+                    onPress={() => sendDefinitionAction('shrink')}
+                    style={[
+                      styles.definitionButton,
+                      (!definitionSheet.canShrink || definitionSheet.loading) &&
+                        styles.definitionButtonDisabled,
+                    ]}
+                  >
+                    <FontAwesome6 name="minus" size={14} color={theme.colors.text} />
+                  </Pressable>
+                  <Pressable
+                    accessibilityLabel="Include more characters"
+                    disabled={!definitionSheet.canExpand || definitionSheet.loading}
+                    onPress={() => sendDefinitionAction('expand')}
+                    style={[
+                      styles.definitionButton,
+                      (!definitionSheet.canExpand || definitionSheet.loading) &&
+                        styles.definitionButtonDisabled,
+                    ]}
+                  >
+                    <FontAwesome6 name="plus" size={14} color={theme.colors.text} />
+                  </Pressable>
+                  <Pressable
+                    accessibilityLabel="Next character"
+                    disabled={!definitionSheet.canNext || definitionSheet.loading}
+                    onPress={() => sendDefinitionAction('next')}
+                    style={[
+                      styles.definitionButton,
+                      (!definitionSheet.canNext || definitionSheet.loading) &&
+                        styles.definitionButtonDisabled,
+                    ]}
+                  >
+                    <FontAwesome6 name="chevron-right" size={14} color={theme.colors.text} />
+                  </Pressable>
+                  <Pressable
+                    accessibilityLabel="Close definition"
+                    onPress={closeDefinitionSheet}
+                    style={styles.definitionButton}
+                  >
+                    <FontAwesome6 name="xmark" size={15} color={theme.colors.text} />
+                  </Pressable>
+                </View>
+              </View>
+              <ScrollView
+                style={styles.definitionBody}
+                contentContainerStyle={styles.definitionBodyPad}
+              >
+                {definitionLines.map((line, index) => (
+                  <Text key={`${definitionSheet.lookupId}-${index}`} style={styles.definitionLine}>
+                    {line}
+                  </Text>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+        </View>
+      </Modal>
       {loading && (
         <View style={styles.loadingOverlay}>
           <View style={styles.loadingCard}>
@@ -876,5 +1236,74 @@ const createStyles = (theme: Theme) =>
     webView: {
       flex: 1,
       backgroundColor: theme.reader.background,
+    },
+    definitionModalLayer: {
+      ...absoluteFill,
+      justifyContent: 'flex-end',
+    },
+    definitionBackdrop: {
+      ...absoluteFill,
+      backgroundColor: 'transparent',
+    },
+    definitionSheet: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      paddingHorizontal: theme.spacing.md,
+      paddingTop: theme.spacing.sm,
+      paddingBottom: theme.spacing.sm,
+      backgroundColor: theme.colors.surface,
+      borderTopWidth: 1,
+      borderTopColor: theme.colors.borderStrong,
+      zIndex: 3,
+      ...theme.shadows.lg,
+    },
+    definitionHeader: {
+      minHeight: 38,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing.sm,
+    },
+    definitionWord: {
+      ...theme.typography.bodyStrong,
+      fontSize: 22,
+      lineHeight: 28,
+      flex: 1,
+      color: theme.colors.textAccent,
+    },
+    definitionWordSingle: {
+      fontSize: 32,
+      lineHeight: 38,
+    },
+    definitionControls: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: theme.spacing.xxs,
+    },
+    definitionButton: {
+      minWidth: 34,
+      height: 32,
+      paddingHorizontal: theme.spacing.xs,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      borderRadius: theme.radius.sm,
+      backgroundColor: theme.colors.surfaceMuted,
+    },
+    definitionButtonDisabled: {
+      opacity: 0.36,
+    },
+    definitionBody: {
+      flex: 1,
+    },
+    definitionBodyPad: {
+      paddingTop: theme.spacing.xs,
+      paddingBottom: theme.spacing.md,
+    },
+    definitionLine: {
+      ...theme.typography.bodyStrong,
+      color: theme.colors.text,
+      marginBottom: theme.spacing.xs,
     },
   });

@@ -1,6 +1,16 @@
 import { FontAwesome6 } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 import type { OfflineChapterRecord } from '../../db/offline';
 import { useOfflineDownloads } from '../../hooks/useOfflineDownloads';
@@ -586,7 +596,10 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
         visible={readerSearchVisible}
         onRequestClose={() => setReaderSearchVisible(false)}
       >
-        <View style={styles.modalLayer}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalLayer}
+        >
           <Pressable style={styles.modalBackdrop} onPress={() => setReaderSearchVisible(false)} />
           <View style={styles.searchSheet}>
             <View style={styles.contentsHeader}>
@@ -671,7 +684,7 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
               }
             />
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </>
   );
@@ -682,7 +695,7 @@ const createStyles = (theme: Theme) =>
     container: {
       position: 'absolute',
       right: 14,
-      bottom: 34,
+      bottom: 86,
       alignItems: 'flex-end',
       zIndex: 20,
     },

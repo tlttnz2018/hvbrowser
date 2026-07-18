@@ -8,6 +8,10 @@ function escapeHtml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function isChineseCharacter(value: string): boolean {
+  return /[\u3400-\u9fff\uf900-\ufaff]/u.test(value);
+}
+
 export function injectBaseHref(html: string, pageUrl: string): string {
   if (!html) return html;
 
@@ -72,17 +76,29 @@ function annotateHanVietTextWithPinyin(
   text: string,
   dictionary: Record<string, string>,
   pinyinDictionary: Record<string, string>,
+  segmentId: number,
 ): string {
   let output = '';
+  let segmentIndex = 0;
+  let breakBeforeNextChinese = false;
 
   for (const ch of text) {
-    const hvWord = dictionary[ch];
-    if (hvWord) {
+    if (isChineseCharacter(ch)) {
+      const hvWord = dictionary[ch] || ch;
       const pinyin = pinyinDictionary[ch] || '';
       const tooltip = pinyin ? `${ch}\n${pinyin}` : ch;
-      output += `<span class="hv-word" data-original="${escapeAttribute(tooltip)}">${escapeHtml(hvWord)}</span> `;
+      const breakAttribute = breakBeforeNextChinese ? ' data-hv-break-before="1"' : '';
+      output += `<span class="hv-word" data-original="${escapeAttribute(tooltip)}" data-chinese="${escapeAttribute(ch)}" data-pinyin="${escapeAttribute(pinyin)}" data-han-viet="${escapeAttribute(hvWord)}" data-hv-segment-id="${segmentId}" data-hv-segment-index="${segmentIndex}"${breakAttribute}>${escapeHtml(hvWord)}</span>`;
+      if (hvWord !== ch) {
+        output += ' ';
+      }
+      segmentIndex += 1;
+      breakBeforeNextChinese = false;
     } else {
       output += escapeHtml(ch);
+      if (ch.trim()) {
+        breakBeforeNextChinese = segmentIndex > 0;
+      }
     }
   }
 
@@ -93,17 +109,26 @@ function annotateChineseTextWithPinyin(
   text: string,
   dictionary: Record<string, string>,
   pinyinDictionary: Record<string, string>,
+  segmentId: number,
 ): string {
   let output = '';
+  let segmentIndex = 0;
+  let breakBeforeNextChinese = false;
 
   for (const ch of text) {
-    const hvWord = dictionary[ch];
-    if (hvWord) {
+    if (isChineseCharacter(ch)) {
+      const hvWord = dictionary[ch] || '';
       const pinyin = pinyinDictionary[ch] || '';
-      const tooltip = pinyin ? `${pinyin}\n${hvWord}` : hvWord;
-      output += `<span class="hv-word" data-original="${escapeAttribute(tooltip)}">${escapeHtml(ch)}</span>`;
+      const tooltip = [pinyin, hvWord].filter(Boolean).join('\n');
+      const breakAttribute = breakBeforeNextChinese ? ' data-hv-break-before="1"' : '';
+      output += `<span class="hv-word" data-original="${escapeAttribute(tooltip)}" data-chinese="${escapeAttribute(ch)}" data-pinyin="${escapeAttribute(pinyin)}" data-han-viet="${escapeAttribute(hvWord)}" data-hv-segment-id="${segmentId}" data-hv-segment-index="${segmentIndex}"${breakAttribute}>${escapeHtml(ch)}</span>`;
+      segmentIndex += 1;
+      breakBeforeNextChinese = false;
     } else {
       output += escapeHtml(ch);
+      if (ch.trim()) {
+        breakBeforeNextChinese = segmentIndex > 0;
+      }
     }
   }
 
@@ -142,80 +167,165 @@ export function normalizeEpubFullSiteHtml(
   return injectIntoHead(html, injected);
 }
 
-function buildTooltipEnhancements(readerTheme: Theme['reader']): string {
+function buildTooltipEnhancements(): string {
   return [
     '<style>',
     '.hv-word { cursor: pointer; }',
     '.hv-word.active { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 0.14em; }',
-    '#hv-tooltip {',
-    '  position: fixed;',
-    '  left: 0;',
-    '  top: 0;',
-    '  display: none;',
-    `  background: ${readerTheme.tooltipBackground};`,
-    `  color: ${readerTheme.tooltipSecondaryText};`,
-    `  border: 2px solid ${readerTheme.tooltipBorder};`,
-    '  padding: 6px 10px;',
-    '  border-radius: 6px;',
-    '  font-size: 1.5em;',
-    '  font-weight: 700;',
-    '  line-height: 1.2;',
-    '  white-space: nowrap;',
-    '  z-index: 9999;',
-    `  box-shadow: 0 2px 8px ${readerTheme.tooltipShadow};`,
-    '  pointer-events: none;',
-    '}',
-    '#hv-tooltip .hv-tooltip-line { display: block; white-space: nowrap; }',
-    `#hv-tooltip .hv-tooltip-line:first-child { color: ${readerTheme.tooltipPrimaryText}; }`,
-    `#hv-tooltip .hv-tooltip-line + .hv-tooltip-line { margin-top: 2px; color: ${readerTheme.tooltipSecondaryText}; }`,
+    '.hv-word.in-selection { background: rgba(255, 214, 102, 0.22); border-radius: 3px; }',
     '</style>',
     '<script>',
     '(function() {',
-    '  var tooltip = document.createElement("div");',
-    '  tooltip.id = "hv-tooltip";',
-    '  function ensureTooltip() { if (document.body && !tooltip.parentNode) document.body.appendChild(tooltip); }',
-    '  ensureTooltip();',
-    '  document.addEventListener("DOMContentLoaded", ensureTooltip);',
-    '  function hideTooltip() {',
-    '    tooltip.style.display = "none";',
-    '    var active = document.querySelector(".hv-word.active");',
-    '    if (active) active.classList.remove("active");',
+    '  var lookupCounter = 0;',
+    '  var currentLookup = null;',
+    '  function clearHighlights() {',
+    '    var highlighted = document.querySelectorAll(".hv-word.active, .hv-word.in-selection");',
+    '    for (var index = 0; index < highlighted.length; index += 1) {',
+    '      highlighted[index].classList.remove("active");',
+    '      highlighted[index].classList.remove("in-selection");',
+    '    }',
     '  }',
-    '  function showTooltip(target) {',
-    '    ensureTooltip();',
-    '    var active = document.querySelector(".hv-word.active");',
-    '    if (active && active !== target) active.classList.remove("active");',
-    '    target.classList.add("active");',
-    '    var content = target.getAttribute("data-original") || "";',
-    '    tooltip.innerHTML = content.split("\\n").map(function(line) {',
-    '      return \'<span class="hv-tooltip-line">\' + line.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") + "</span>";',
-    '    }).join("");',
-    '    tooltip.style.display = "block";',
-    '    var rect = target.getBoundingClientRect();',
-    '    var tipRect = tooltip.getBoundingClientRect();',
-    '    var margin = 8;',
-    '    var left = rect.left + (rect.width / 2) - (tipRect.width / 2);',
-    '    left = Math.max(margin, Math.min(left, window.innerWidth - tipRect.width - margin));',
-    '    var top = rect.top - tipRect.height - 8;',
-    '    if (top < margin) top = Math.min(window.innerHeight - tipRect.height - margin, rect.bottom + 8);',
-    '    tooltip.style.left = left + "px";',
-    '    tooltip.style.top = Math.max(margin, top) + "px";',
+    '  function clearLookup() {',
+    '    currentLookup = null;',
+    '    clearHighlights();',
     '  }',
+    '  function getWordCharacter(word) { return word.getAttribute("data-chinese") || ""; }',
+    '  function getWordPinyin(word) { return word.getAttribute("data-pinyin") || ""; }',
+    '  function getWordHanViet(word) { return word.getAttribute("data-han-viet") || ""; }',
+    '  function getSelectedWords() {',
+    '    if (!currentLookup) return [];',
+    '    return currentLookup.words.slice(currentLookup.start, currentLookup.end);',
+    '  }',
+    '  function getSelectedText() { return getSelectedWords().map(getWordCharacter).join(""); }',
+    '  function getSelectedPinyin() { return getSelectedWords().map(getWordPinyin).filter(Boolean).join(" "); }',
+    '  function getSelectedHanViet() { return getSelectedWords().map(getWordHanViet).filter(Boolean).join(" "); }',
+    '  function applyHighlights() {',
+    '    clearHighlights();',
+    '    if (!currentLookup) return;',
+    '    for (var index = currentLookup.start; index < currentLookup.end; index += 1) {',
+    '      currentLookup.words[index].classList.add("in-selection");',
+    '    }',
+    '    currentLookup.words[currentLookup.activeIndex].classList.add("active");',
+    '  }',
+    '  window.__HVBROWSER_DEFINITION_LOOKUP__SHOW__ = function(result) {',
+    '    var lookupId = result && result.lookupId;',
+    '    if (!lookupId || !currentLookup || currentLookup.lookupId !== lookupId) return;',
+    '    if (currentLookup.mode === "best" && result.entry && result.entry.word) {',
+    '      adoptResultRange(result.entry.word);',
+    '    }',
+    '    applyHighlights();',
+    '  };',
+    '  function collectSegmentWords(target) {',
+    '    var segmentId = target.getAttribute("data-hv-segment-id") || "";',
+    '    var candidates = document.querySelectorAll(".hv-word[data-chinese]");',
+    '    var segmentWords = [];',
+    '    for (var index = 0; index < candidates.length; index += 1) {',
+    '      if (!segmentId || candidates[index].getAttribute("data-hv-segment-id") === segmentId) {',
+    '        segmentWords.push(candidates[index]);',
+    '      }',
+    '    }',
+    '    var position = segmentWords.indexOf(target);',
+    '    if (position < 0) {',
+    '      return { words: [target], position: 0 };',
+    '    }',
+    '    var start = position;',
+    '    while (start > 0 && segmentWords[start].getAttribute("data-hv-break-before") !== "1") start -= 1;',
+    '    var end = position + 1;',
+    '    while (end < segmentWords.length && segmentWords[end].getAttribute("data-hv-break-before") !== "1") end += 1;',
+    '    return { words: segmentWords.slice(start, end), position: position - start };',
+    '  }',
+    '  function adoptResultRange(word) {',
+    '    if (!currentLookup || !word) return;',
+    '    for (var start = 0; start < currentLookup.words.length; start += 1) {',
+    '      var text = "";',
+    '      for (var end = start; end < currentLookup.words.length; end += 1) {',
+    '        text += getWordCharacter(currentLookup.words[end]);',
+    '        if (text === word && start <= currentLookup.activeIndex && currentLookup.activeIndex <= end) {',
+    '          currentLookup.start = start;',
+    '          currentLookup.end = end + 1;',
+    '          applyHighlights();',
+    '          return;',
+    '        }',
+    '        if (text.length >= word.length) break;',
+    '      }',
+    '    }',
+    '  }',
+    '  function buildLookupPayload(mode) {',
+    '    if (!currentLookup) return null;',
+    '    return {',
+    '      type: "definition-press",',
+    '      lookupId: currentLookup.lookupId,',
+    '      lookupMode: mode,',
+    '      chineseContext: currentLookup.words.map(getWordCharacter).join(""),',
+    '      characterIndex: currentLookup.activeIndex,',
+    '      selectedWord: getSelectedText(),',
+    '      selectedPinyin: getSelectedPinyin(),',
+    '      selectedHanViet: getSelectedHanViet(),',
+    '      selectedStart: currentLookup.start,',
+    '      selectedEnd: currentLookup.end,',
+    '      segmentLength: currentLookup.words.length,',
+    '      fallbackWord: getWordCharacter(currentLookup.words[currentLookup.activeIndex]),',
+    '      fallbackPinyin: getWordPinyin(currentLookup.words[currentLookup.activeIndex]),',
+    '      fallbackHanViet: getWordHanViet(currentLookup.words[currentLookup.activeIndex])',
+    '    };',
+    '  }',
+    '  function requestLookup(mode) {',
+    '    if (!currentLookup) return;',
+    '    currentLookup.mode = mode;',
+    '    applyHighlights();',
+    '    var payload = buildLookupPayload(mode);',
+    '    if (payload && window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {',
+    '      window.ReactNativeWebView.postMessage(JSON.stringify(payload));',
+    '    }',
+    '  }',
+    '  function requestDefinition(target) {',
+    '    var segment = collectSegmentWords(target);',
+    '    var lookupId = "hv-definition-" + Date.now() + "-" + lookupCounter;',
+    '    lookupCounter += 1;',
+    '    currentLookup = { lookupId: lookupId, words: segment.words, activeIndex: segment.position, start: segment.position, end: segment.position + 1, mode: "best" };',
+    '    requestLookup("best");',
+    '  }',
+    '  function handleDialogAction(action) {',
+    '    if (!currentLookup) return;',
+    '    if (action === "close") { clearLookup(); return; }',
+    '    if (action === "prev" && currentLookup.activeIndex > 0) {',
+    '      currentLookup.activeIndex -= 1;',
+    '      currentLookup.start = currentLookup.activeIndex;',
+    '      currentLookup.end = currentLookup.activeIndex + 1;',
+    '      requestLookup("exact");',
+    '      return;',
+    '    }',
+    '    if (action === "next" && currentLookup.activeIndex < currentLookup.words.length - 1) {',
+    '      currentLookup.activeIndex += 1;',
+    '      currentLookup.start = currentLookup.activeIndex;',
+    '      currentLookup.end = currentLookup.activeIndex + 1;',
+    '      requestLookup("exact");',
+    '      return;',
+    '    }',
+    '    if (action === "shrink" && currentLookup.end - currentLookup.start > 1) {',
+    '      if (currentLookup.end - 1 > currentLookup.activeIndex) currentLookup.end -= 1;',
+    '      else currentLookup.start += 1;',
+    '      requestLookup("exact");',
+    '      return;',
+    '    }',
+    '    if (action === "expand") {',
+    '      if (currentLookup.end < currentLookup.words.length) currentLookup.end += 1;',
+    '      else if (currentLookup.start > 0) currentLookup.start -= 1;',
+    '      requestLookup("exact");',
+    '    }',
+    '  }',
+    '  window.__HVBROWSER_DEFINITION_LOOKUP__ACTION__ = handleDialogAction;',
+    '  window.__HVBROWSER_DEFINITION_LOOKUP__CLOSE__ = clearLookup;',
     '  document.addEventListener("click", function(event) {',
     '    var current = event.target && event.target.closest ? event.target.closest(".hv-word") : null;',
-    '    if (!current) { hideTooltip(); return; }',
+    '    if (!current) { return; }',
     '    var link = current.closest ? current.closest("a") : null;',
-    '    if (link) { hideTooltip(); return; }',
-    '    var active = document.querySelector(".hv-word.active");',
-    '    if (tooltip.style.display === "block" && active === current) {',
-    '      hideTooltip();',
-    '    } else {',
-    '      showTooltip(current);',
-    '    }',
+    '    if (link) { clearLookup(); return; }',
+    '    requestDefinition(current);',
     '    event.preventDefault();',
+    '    event.stopPropagation();',
     '  });',
-    '  window.addEventListener("scroll", hideTooltip, true);',
-    '  window.addEventListener("resize", hideTooltip);',
+    '  window.addEventListener("resize", clearLookup);',
     '})();',
     '</script>',
   ].join('');
@@ -228,15 +338,14 @@ export function stripPresentationHtmlWithHvTooltips(
   pinyinDictionary: Record<string, string>,
   readerTheme: Theme['reader'],
 ): string {
+  let segmentId = 0;
   const output = stripPresentationMarkup(html).replace(/>([^<>]+)</g, (_, text: string) => {
     if (!text.trim()) return `>${text}<`;
-    return `>${annotateHanVietTextWithPinyin(text, dictionary, pinyinDictionary)}<`;
+    segmentId += 1;
+    return `>${annotateHanVietTextWithPinyin(text, dictionary, pinyinDictionary, segmentId)}<`;
   });
 
-  const injected = [
-    buildReaderStyle(fontSize, readerTheme),
-    buildTooltipEnhancements(readerTheme),
-  ].join('');
+  const injected = [buildReaderStyle(fontSize, readerTheme), buildTooltipEnhancements()].join('');
 
   return injectIntoHead(output, injected);
 }
@@ -248,15 +357,14 @@ export function stripPresentationHtmlWithChineseTooltips(
   pinyinDictionary: Record<string, string>,
   readerTheme: Theme['reader'],
 ): string {
+  let segmentId = 0;
   const output = stripPresentationMarkup(html).replace(/>([^<>]+)</g, (_, text: string) => {
     if (!text.trim()) return `>${text}<`;
-    return `>${annotateChineseTextWithPinyin(text, dictionary, pinyinDictionary)}<`;
+    segmentId += 1;
+    return `>${annotateChineseTextWithPinyin(text, dictionary, pinyinDictionary, segmentId)}<`;
   });
 
-  const injected = [
-    buildReaderStyle(fontSize, readerTheme),
-    buildTooltipEnhancements(readerTheme),
-  ].join('');
+  const injected = [buildReaderStyle(fontSize, readerTheme), buildTooltipEnhancements()].join('');
 
   return injectIntoHead(output, injected);
 }
