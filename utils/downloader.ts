@@ -27,7 +27,7 @@ const charFromCodePt = (cp: number): string =>
 function utf8ArrayToStr(array: Uint8Array): string {
   const result: string[] = [];
   const buffLen = array.length;
-  for (let i = 0; i < buffLen; ) {
+  for (let i = 0; i < buffLen;) {
     const byte1 = array[i++];
     let codePt: number;
     if (byte1 <= 0x7f) {

@@ -76,16 +76,11 @@ export interface PendingBookmarkDraft {
 }
 
 export type ReaderHistoryEntry =
-  | { kind: 'remote-url'; url: string }
-  | { kind: 'offline-chapter'; chapterId: number; url: string };
+  { kind: 'remote-url'; url: string } | { kind: 'offline-chapter'; chapterId: number; url: string };
 
 type ReaderContentSource = 'remote' | 'offline';
 export type ReaderLoadingStage =
-  | 'downloading'
-  | 'extracting'
-  | 'parsing'
-  | 'converting'
-  | 'rendering';
+  'downloading' | 'extracting' | 'parsing' | 'converting' | 'rendering';
 
 interface AppState {
   loading: boolean;

@@ -1,7 +1,7 @@
 import { Generated, Kysely, Selectable, sql } from 'kysely';
-import { Migration, MigrationProvider, Migrator } from 'kysely/migration';
 
 import { createExpoSqliteDatabase, ExpoSqliteDialect } from './expoSqliteDialect';
+import { AppMigration, runMigrations } from './runMigrations';
 
 const DATABASE_NAME = 'hvbrowser.db';
 
@@ -234,7 +234,7 @@ interface UpdateEpubImportJobInput {
   errorMessage?: string | null;
 }
 
-const migrations: Record<string, Migration> = {
+const migrations: Record<string, AppMigration> = {
   '001_create_offline_tables': {
     async up(db) {
       await db.schema
@@ -352,12 +352,6 @@ const migrations: Record<string, Migration> = {
   },
 };
 
-const migrationProvider: MigrationProvider = {
-  async getMigrations() {
-    return migrations;
-  },
-};
-
 const sqliteDatabase = createExpoSqliteDatabase(DATABASE_NAME);
 
 const offlineDb = new Kysely<OfflineDatabaseSchema>({
@@ -428,17 +422,7 @@ function mapEpubImportJobRow(row: EpubImportJobRow): EpubImportJobRecord {
 export async function ensureOfflineDbReady() {
   if (!initializationPromise) {
     initializationPromise = (async () => {
-      const migrator = new Migrator({
-        db: offlineDb,
-        provider: migrationProvider,
-        migrationTableName: 'offline_kysely_migrations',
-        migrationLockTableName: 'offline_kysely_migration_lock',
-      });
-      const { error } = await migrator.migrateToLatest();
-
-      if (error) {
-        throw error;
-      }
+      await runMigrations(offlineDb, migrations, 'offline_kysely_migrations');
     })();
   }
 

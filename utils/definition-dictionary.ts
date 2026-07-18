@@ -31,9 +31,7 @@ function toCharacters(value: string): string[] {
 async function getDefinitionDatabase(): Promise<SQLiteDatabase> {
   if (!databasePromise) {
     databasePromise = (async () => {
-      await importDatabaseFromAssetAsync(DATABASE_NAME, {
-        assetId: DATABASE_ASSET,
-      });
+      await importDatabaseFromAssetAsync(DATABASE_NAME, { assetId: DATABASE_ASSET });
       const database = await openDatabaseAsync(DATABASE_NAME);
       await database.execAsync('PRAGMA query_only = ON;');
       return database;

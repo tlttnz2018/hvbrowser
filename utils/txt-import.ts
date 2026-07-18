@@ -15,6 +15,12 @@ interface TxtImportFile {
   sourceFileName?: string;
 }
 
+interface PickedTxtSource {
+  uri: string;
+  name?: string;
+  size?: number;
+}
+
 interface TxtFileHandle {
   close: () => void;
   readBytes: (length: number) => TxtBytes;
@@ -52,6 +58,24 @@ function basenameFromUri(uri: string) {
   }
 }
 
+function isOpaqueAndroidDocumentName(fileName: string) {
+  return /^(msf|image|video|audio|document|raw):\d+$/i.test(fileName.trim());
+}
+
+function getPickedTxtFileName(name: string | undefined, uri: string) {
+  const trimmedName = name?.trim();
+  if (trimmedName && !isOpaqueAndroidDocumentName(trimmedName)) {
+    return trimmedName;
+  }
+
+  const uriName = basenameFromUri(uri);
+  if (uriName && !isOpaqueAndroidDocumentName(uriName)) {
+    return uriName;
+  }
+
+  return 'book.txt';
+}
+
 function stripTxtExtension(fileName: string) {
   return fileName.replace(/\.[^.]+$/, '').trim();
 }
@@ -64,7 +88,7 @@ function ensureDirectory(directory: Directory) {
   directory.create({ idempotent: true, intermediates: true });
 }
 
-async function copyPickedTxtToCache(source: TxtImportFile, fileName: string) {
+async function copyPickedTxtToCache(source: PickedTxtSource, fileName: string) {
   ensureDirectory(TXT_CACHE_ROOT);
 
   const target = new File(TXT_CACHE_ROOT, `${Date.now()}-${sanitizeCacheFileName(fileName)}`);
@@ -78,6 +102,24 @@ async function copyPickedTxtToCache(source: TxtImportFile, fileName: string) {
   });
 
   return target;
+}
+
+async function pickTxtDocument(): Promise<PickedTxtSource | null> {
+  try {
+    const DocumentPicker = require('expo-document-picker') as typeof import('expo-document-picker');
+    const result = await DocumentPicker.getDocumentAsync({
+      type: 'text/plain',
+      copyToCacheDirectory: true,
+      multiple: false,
+      base64: false,
+    });
+
+    return result.canceled ? null : result.assets[0];
+  } catch {
+    const pickedFile = await File.pickFileAsync(undefined, 'text/plain');
+    const file = Array.isArray(pickedFile) ? pickedFile[0] : pickedFile;
+    return file ? { uri: file.uri, size: file.size } : null;
+  }
 }
 
 function hasUtf8Bom(bytes: TxtBytes) {
@@ -371,14 +413,18 @@ export async function importTxtFile(file: TxtImportFile): Promise<TxtImportResul
 
 export async function importTxtFromPicker(): Promise<TxtImportResult | null> {
   try {
-    const pickedFile = await File.pickFileAsync(undefined, 'text/plain');
-    const file = Array.isArray(pickedFile) ? pickedFile[0] : pickedFile;
+    if (Platform.OS === 'web') {
+      Alert.alert('TXT import failed', 'TXT import is not available in this build.');
+      return null;
+    }
+
+    const file = await pickTxtDocument();
 
     if (!file) {
       return null;
     }
 
-    const fileName = basenameFromUri(file.uri) || 'book.txt';
+    const fileName = getPickedTxtFileName(file.name, file.uri);
     const importFile = await copyPickedTxtToCache(file, fileName);
     try {
       return await importTxtFile({
@@ -393,11 +439,6 @@ export async function importTxtFromPicker(): Promise<TxtImportResult | null> {
       }
     }
   } catch (error) {
-    if (Platform.OS === 'web') {
-      Alert.alert('TXT import failed', 'TXT import is not available in this build.');
-      return null;
-    }
-
     const message = error instanceof Error ? error.message : 'Unable to import TXT file.';
     Alert.alert('TXT import failed', message);
     return null;

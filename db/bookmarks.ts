@@ -1,6 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Generated, Kysely, Selectable } from 'kysely';
-import { Migration, MigrationProvider, Migrator } from 'kysely/migration';
 
 import {
   getBookmarkFavicon,
@@ -10,6 +9,7 @@ import {
   truncateBookmarkTitle,
 } from '../utils/bookmarks';
 import { createExpoSqliteDatabase, ExpoSqliteDialect } from './expoSqliteDialect';
+import { AppMigration, runMigrations } from './runMigrations';
 
 const DATABASE_NAME = 'hvbrowser.db';
 const BOOKMARK_STORAGE_KEY = 'hv-browser-storage';
@@ -74,7 +74,7 @@ export interface BookmarkTransferPayload {
   bookmarks: BookmarkTransferRecord[];
 }
 
-const migrations: Record<string, Migration> = {
+const migrations: Record<string, AppMigration> = {
   '001_create_bookmarks_table': {
     async up(db) {
       await db.schema
@@ -97,12 +97,6 @@ const migrations: Record<string, Migration> = {
         .addColumn('description', 'text', (col) => col.notNull().defaultTo(''))
         .execute();
     },
-  },
-};
-
-const migrationProvider: MigrationProvider = {
-  async getMigrations() {
-    return migrations;
   },
 };
 
@@ -249,18 +243,7 @@ async function migrateLegacyBookmarksFromAsyncStorage() {
 export async function ensureBookmarkDbReady() {
   if (!initializationPromise) {
     initializationPromise = (async () => {
-      const migrator = new Migrator({
-        db: bookmarkDb,
-        provider: migrationProvider,
-        migrationTableName: 'bookmark_kysely_migrations',
-        migrationLockTableName: 'bookmark_kysely_migration_lock',
-      });
-      const { error } = await migrator.migrateToLatest();
-
-      if (error) {
-        throw error;
-      }
-
+      await runMigrations(bookmarkDb, migrations, 'bookmark_kysely_migrations');
       await migrateLegacyBookmarksFromAsyncStorage();
     })();
   }

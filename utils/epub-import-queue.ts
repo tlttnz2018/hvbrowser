@@ -24,6 +24,11 @@ import {
 
 let epubImportLoopPromise: Promise<void> | null = null;
 
+interface PickedDocumentAsset {
+  uri: string;
+  name?: string;
+}
+
 function isWorkspaceAvailable(jobId: number) {
   return getEpubUnzippedDirectory(jobId).exists;
 }
@@ -138,20 +143,37 @@ export async function ensureEpubImportQueueRunning() {
   return epubImportLoopPromise;
 }
 
+async function pickEpubDocument(): Promise<PickedDocumentAsset | null> {
+  try {
+    const DocumentPicker = require('expo-document-picker') as typeof import('expo-document-picker');
+    const result = await DocumentPicker.getDocumentAsync({
+      type: 'application/epub+zip',
+      copyToCacheDirectory: true,
+      multiple: false,
+      base64: false,
+    });
+
+    return result.canceled ? null : result.assets[0];
+  } catch {
+    const pickedFile = await File.pickFileAsync(undefined, 'application/epub+zip');
+    const file = Array.isArray(pickedFile) ? pickedFile[0] : pickedFile;
+    return file ? { uri: file.uri } : null;
+  }
+}
+
 export async function queueEpubImportFromPicker() {
   if (Platform.OS === 'web') {
     Alert.alert('Unsupported on web', 'EPUB import currently works on iOS and Android only.');
     return null;
   }
-  const pickedFile = await File.pickFileAsync(undefined, 'application/epub+zip');
-  const file = Array.isArray(pickedFile) ? pickedFile[0] : pickedFile;
+  const file = await pickEpubDocument();
 
   if (!file) {
     return null;
   }
 
   const job = await useAppStore.getState().enqueueEpubImportJob({
-    fileName: basenameFromUri(file.uri) || 'book.epub',
+    fileName: file.name || basenameFromUri(file.uri) || 'book.epub',
     pickedFileUri: file.uri,
   });
   await ensureEpubImportQueueRunning();

@@ -209,13 +209,14 @@ const detected = encoding.detect(byteArray);
 ```
 
 **Encoding mapping** (encoding-japanese → iconv-lite):
-| Detected | iconv-lite name |
-|----------|----------------|
-| `UTF8` | Use `TextDecoder('utf-8')`, fallback to manual `utf8ArrayToStr()` |
-| `SJIS` | `shiftjis` |
-| `EUCJP` | `euc-jp` |
-| `UNICODE` | `utf-16le` |
-| Other/unknown | `gbk` (preserve current fallback behavior) |
+
+| Detected      | iconv-lite name                                                   |
+| ------------- | ----------------------------------------------------------------- |
+| `UTF8`        | Use `TextDecoder('utf-8')`, fallback to manual `utf8ArrayToStr()` |
+| `SJIS`        | `shiftjis`                                                        |
+| `EUCJP`       | `euc-jp`                                                          |
+| `UNICODE`     | `utf-16le`                                                        |
+| Other/unknown | `gbk` (preserve current fallback behavior)                        |
 
 **`convertHtmlPageToHV`** — Character-by-character dictionary lookup. Pure string logic, ports directly.
 
