@@ -1,5 +1,5 @@
-import { Directory, File } from 'expo-file-system';
-import { Unzip, Zip, ZipDeflate, ZipPassThrough } from 'fflate';
+import { Directory, File, Paths } from 'expo-file-system';
+import { Unzip, UnzipInflate, Zip, ZipDeflate, ZipPassThrough } from 'fflate';
 
 import {
   getOfflineChapterById,
@@ -25,6 +25,7 @@ const ZIP_CHUNK_SIZE = 64 * 1024;
 const TEXT_ENCODER = new TextEncoder();
 const TEXT_DECODER = new TextDecoder();
 const ASSET_PLACEHOLDER_SCHEME = 'hvbrowser-backup-asset://';
+const BACKUP_EXPORT_CACHE = new Directory(Paths.cache, 'offline-library-backups');
 
 interface StoryImportContext {
   backupStory: OfflineLibraryBackupStory;
@@ -39,6 +40,14 @@ function ensureDirectory(directory: Directory) {
 
 function ensureParentDirectory(file: File) {
   ensureDirectory(file.parentDirectory);
+}
+
+function getExportTimestamp() {
+  return new Date()
+    .toISOString()
+    .replace(/\.\d{3}Z$/, '')
+    .replace(/[-:]/g, '')
+    .replace('T', '-');
 }
 
 function normalizeComparisonText(value: string | null | undefined) {
@@ -493,15 +502,18 @@ function assertBackupStory(value: unknown): asserts value is OfflineLibraryBacku
 
 export async function exportOfflineLibraryBackup(destinationDirectory: Directory): Promise<File> {
   ensureDirectory(destinationDirectory);
+  ensureDirectory(BACKUP_EXPORT_CACHE);
 
   const stories = await listOfflineStories();
-  const exportFile = new File(
-    destinationDirectory.uri,
-    `hvbrowser-offline-library-${new Date().toISOString().slice(0, 10)}.zip`,
-  );
-  exportFile.create({ overwrite: true, intermediates: true });
+  const exportFileName = `hvbrowser-offline-library-${getExportTimestamp()}.zip`;
+  const tempFile = new File(BACKUP_EXPORT_CACHE, exportFileName);
+  if (tempFile.exists) {
+    tempFile.delete();
+  }
+  tempFile.create({ overwrite: true, intermediates: true });
 
-  const outputHandle = exportFile.open();
+  const outputHandle = tempFile.open();
+  let exportFile: File | null = null;
 
   try {
     await new Promise<void>(async (resolve, reject) => {
@@ -585,13 +597,27 @@ export async function exportOfflineLibraryBackup(destinationDirectory: Directory
         reject(error);
       }
     });
+
+    exportFile = destinationDirectory.createFile(exportFileName, 'application/zip');
+    exportFile.write(await tempFile.bytes());
   } catch (error) {
-    if (exportFile.exists) {
-      exportFile.delete();
+    if (exportFile?.exists) {
+      try {
+        exportFile.delete();
+      } catch {
+        // Ignore cleanup failures for partially written document-provider files.
+      }
     }
     throw error;
   } finally {
     outputHandle.close();
+    if (tempFile.exists) {
+      tempFile.delete();
+    }
+  }
+
+  if (!exportFile) {
+    throw new Error('Unable to create the offline library backup file.');
   }
 
   return exportFile;
@@ -615,6 +641,7 @@ export async function importOfflineLibraryBackup(
   try {
     await new Promise<void>((resolve, reject) => {
       const unzip = new Unzip();
+      unzip.register(UnzipInflate);
       let pendingEntries = 0;
       let inputCompleted = false;
       let failed = false;

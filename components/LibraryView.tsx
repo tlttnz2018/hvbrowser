@@ -1,5 +1,6 @@
 import { FontAwesome6 } from '@expo/vector-icons';
-import { Directory, File } from 'expo-file-system';
+import { Directory, File, Paths } from 'expo-file-system';
+import { copyAsync as legacyCopyAsync } from 'expo-file-system/legacy';
 import React, { useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -30,6 +31,13 @@ type SortKey = 'recent' | 'title' | 'domain';
 type SortDirection = 'asc' | 'desc';
 type LibraryTabKey = 'library' | 'offline';
 
+interface PickedBackupFile {
+  uri: string;
+  name?: string;
+}
+
+const OFFLINE_BACKUP_IMPORT_CACHE = new Directory(Paths.cache, 'offline-backup-imports');
+
 const BUILT_IN_SOURCES: SiteItem[] = [
   { uri: require('../assets/17k.png'), url: 'http://h5.17k.com/', desc: '17k', kind: 'source' },
   {
@@ -57,6 +65,78 @@ const BUILT_IN_SOURCES: SiteItem[] = [
     kind: 'source',
   },
 ];
+
+function getExportTimestamp() {
+  return new Date()
+    .toISOString()
+    .replace(/\.\d{3}Z$/, '')
+    .replace(/[-:]/g, '')
+    .replace('T', '-');
+}
+
+function ensureDirectory(directory: Directory) {
+  directory.create({ idempotent: true, intermediates: true });
+}
+
+function sanitizeBackupFileName(fileName: string | undefined) {
+  return (fileName || 'offline-backup.zip').replace(/[^a-zA-Z0-9._-]+/g, '_') || 'backup.zip';
+}
+
+function basenameFromUri(uri: string) {
+  const cleanUri = uri.split('?')[0].split('#')[0];
+  const name = cleanUri.slice(cleanUri.lastIndexOf('/') + 1);
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return name;
+  }
+}
+
+async function pickOfflineBackupImportFile(): Promise<{ file: File; cleanup: () => void } | null> {
+  let pickedFile: PickedBackupFile | null = null;
+
+  try {
+    const DocumentPicker = require('expo-document-picker') as typeof import('expo-document-picker');
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'],
+      copyToCacheDirectory: true,
+      multiple: false,
+      base64: false,
+    });
+    pickedFile = result.canceled ? null : result.assets[0];
+  } catch {
+    const fallbackFile = await File.pickFileAsync(undefined, 'application/zip');
+    const file = Array.isArray(fallbackFile) ? fallbackFile[0] : fallbackFile;
+    pickedFile = file ? { uri: file.uri, name: basenameFromUri(file.uri) } : null;
+  }
+
+  if (!pickedFile) {
+    return null;
+  }
+
+  ensureDirectory(OFFLINE_BACKUP_IMPORT_CACHE);
+  const targetFile = new File(
+    OFFLINE_BACKUP_IMPORT_CACHE,
+    `${Date.now()}-${sanitizeBackupFileName(pickedFile.name || basenameFromUri(pickedFile.uri))}`,
+  );
+  if (targetFile.exists) {
+    targetFile.delete();
+  }
+
+  await legacyCopyAsync({
+    from: pickedFile.uri,
+    to: targetFile.uri,
+  });
+
+  return {
+    file: targetFile,
+    cleanup: () => {
+      if (targetFile.exists) {
+        targetFile.delete();
+      }
+    },
+  };
+}
 
 const FILTER_OPTIONS: Array<{ key: FilterKey; label: string }> = [
   { key: 'all', label: 'All' },
@@ -337,12 +417,11 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
     try {
       setBookmarkTransferBusy('export');
       const destinationDirectory = await Directory.pickDirectoryAsync();
-      const exportFile = new File(
-        destinationDirectory.uri,
-        `hvbrowser-bookmarks-${new Date().toISOString().slice(0, 10)}.json`,
+      const exportFile = destinationDirectory.createFile(
+        `hvbrowser-bookmarks-${getExportTimestamp()}.json`,
+        'application/json',
       );
 
-      exportFile.create({ overwrite: true, intermediates: true });
       exportFile.write(await exportBookmarksBackup());
 
       Alert.alert(
@@ -373,18 +452,21 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
 
     try {
       setOfflineTransferBusy('import-backup');
-      const pickedFile = await File.pickFileAsync(undefined, 'application/zip');
-      const file = Array.isArray(pickedFile) ? pickedFile[0] : pickedFile;
+      const pickedFile = await pickOfflineBackupImportFile();
 
-      if (!file) {
+      if (!pickedFile) {
         return;
       }
 
-      const imported = await importOfflineLibraryBackup(new File(file.uri));
-      Alert.alert(
-        'Offline backup imported',
-        `${imported.importedStories} stor${imported.importedStories === 1 ? 'y' : 'ies'} and ${imported.importedChapters} chapter${imported.importedChapters === 1 ? '' : 's'} restored. ${imported.queuedChapters} chapter${imported.queuedChapters === 1 ? '' : 's'} queued for download.`,
-      );
+      try {
+        const imported = await importOfflineLibraryBackup(pickedFile.file);
+        Alert.alert(
+          'Offline backup imported',
+          `${imported.importedStories} stor${imported.importedStories === 1 ? 'y' : 'ies'} and ${imported.importedChapters} chapter${imported.importedChapters === 1 ? '' : 's'} restored. ${imported.queuedChapters} chapter${imported.queuedChapters === 1 ? '' : 's'} queued for download.`,
+        );
+      } finally {
+        pickedFile.cleanup();
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Unable to import that offline library backup.';
