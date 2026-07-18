@@ -2,6 +2,7 @@ import { FontAwesome6 } from '@expo/vector-icons';
 import { Directory, File, Paths } from 'expo-file-system';
 import {
   copyAsync as legacyCopyAsync,
+  documentDirectory as legacyDocumentDirectory,
   EncodingType,
   writeAsStringAsync as legacyWriteAsStringAsync,
 } from 'expo-file-system/legacy';
@@ -12,6 +13,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -104,6 +106,22 @@ function basenameFromUri(uri: string) {
   } catch {
     return name;
   }
+}
+
+async function exportTextFileToIosShare(fileName: string, contents: string) {
+  if (!legacyDocumentDirectory) {
+    throw new Error('Device document storage is not available.');
+  }
+
+  const fileUri = `${legacyDocumentDirectory}${fileName}`;
+  await legacyWriteAsStringAsync(fileUri, contents, {
+    encoding: EncodingType.UTF8,
+  });
+
+  await Share.share({
+    title: fileName,
+    url: fileUri,
+  });
 }
 
 async function pickOfflineBackupImportFile(): Promise<{ file: File; cleanup: () => void } | null> {
@@ -430,15 +448,23 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
 
     try {
       setBookmarkTransferBusy('export');
+      const exportFileName = `hvbrowser-bookmarks-${getExportTimestamp()}.json`;
+      const exportPayload = await exportBookmarksBackup();
+
+      if (Platform.OS === 'ios') {
+        await exportTextFileToIosShare(exportFileName, exportPayload);
+        return;
+      }
+
       const pickedDirectory = await Directory.pickDirectoryAsync();
       const destinationDirectory = new Directory(pickedDirectory.uri);
       const exportFile = createFileInDirectory(
         destinationDirectory,
-        `hvbrowser-bookmarks-${getExportTimestamp()}.json`,
+        exportFileName,
         'application/json',
       );
 
-      await legacyWriteAsStringAsync(exportFile.uri, await exportBookmarksBackup(), {
+      await legacyWriteAsStringAsync(exportFile.uri, exportPayload, {
         encoding: EncodingType.UTF8,
       });
 
