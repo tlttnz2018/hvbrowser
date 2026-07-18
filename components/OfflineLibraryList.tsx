@@ -1,5 +1,5 @@
 import { FontAwesome6 } from '@expo/vector-icons';
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -15,7 +15,12 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { EpubImportJobRecord, OfflineChapterRecord, OfflineStoryRecord } from '../db/offline';
+import {
+  type EpubImportJobRecord,
+  getOfflineChapterById,
+  type OfflineChapterRecord,
+  type OfflineStoryRecord,
+} from '../db/offline';
 import { useAppStore } from '../stores/useAppStore';
 import { type ReaderSearchResult, useWebPageStore } from '../stores/useWebPageStore';
 import { absoluteFill, Theme, useTheme } from '../theme';
@@ -98,6 +103,7 @@ const MODE_OPTIONS: Array<{ key: OfflineViewMode; label: string; description: st
     description: 'Browse one flat virtualized chapter list across stories.',
   },
 ];
+const CHAPTER_SEARCH_BATCH_SIZE = 12;
 
 function statusColor(theme: Theme, status: OfflineChapterRecord['downloadStatus']) {
   if (status === 'downloaded') return theme.colors.accent;
@@ -136,7 +142,7 @@ function buildChapterRow(
   chapter: OfflineChapterRecord,
   storyName: string,
   rawQuery: string,
-  dictionary: Record<string, string>,
+  textMatch: OfflineChapterTextMatch | null,
 ): ChapterRow | null {
   const query = rawQuery.trim();
 
@@ -153,7 +159,6 @@ function buildChapterRow(
   const metadataMatch = `${storyName} ${chapter.chapterName} ${chapter.chapterUrl}`
     .toLowerCase()
     .includes(query.toLowerCase());
-  const textMatch = findOfflineChapterTextMatch(chapter, query, dictionary);
 
   if (!metadataMatch && !textMatch) {
     return null;
@@ -332,6 +337,12 @@ export default function OfflineLibraryList({
   const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
   const [storySearchQuery, setStorySearchQuery] = useState('');
   const [storyLastOnly, setStoryLastOnly] = useState(false);
+  const [chapterTextMatches, setChapterTextMatches] = useState<
+    Record<number, OfflineChapterTextMatch>
+  >({});
+  const [storyChapterTextMatches, setStoryChapterTextMatches] = useState<
+    Record<number, OfflineChapterTextMatch>
+  >({});
   const importJobsVisible = importJobs.filter(
     (job) =>
       job.status !== 'completed' || !!job.errorMessage || job.importedChapters < job.totalChapters,
@@ -428,7 +439,12 @@ export default function OfflineLibraryList({
           return;
         }
 
-        const row = buildChapterRow(chapter, story.name, rawSearchQuery, dictionary);
+        const row = buildChapterRow(
+          chapter,
+          story.name,
+          rawSearchQuery,
+          chapterTextMatches[chapter.id] ?? null,
+        );
         if (!row) {
           return;
         }
@@ -438,7 +454,7 @@ export default function OfflineLibraryList({
     });
 
     return rows;
-  }, [chaptersByStory, dictionary, filterKey, rawSearchQuery, stories]);
+  }, [chapterTextMatches, chaptersByStory, filterKey, rawSearchQuery, stories]);
 
   const activeStoryChapterRows = useMemo<ChapterRow[]>(() => {
     if (!activeStory) {
@@ -452,7 +468,12 @@ export default function OfflineLibraryList({
           : matchesChapterFilter(chapter, filterKey),
       )
       .reduce<ChapterRow[]>((rows, chapter) => {
-        const row = buildChapterRow(chapter, activeStory.name, rawStorySearchQuery, dictionary);
+        const row = buildChapterRow(
+          chapter,
+          activeStory.name,
+          rawStorySearchQuery,
+          storyChapterTextMatches[chapter.id] ?? null,
+        );
         if (row) {
           rows.push(row);
         }
@@ -461,11 +482,132 @@ export default function OfflineLibraryList({
   }, [
     activeStory,
     chaptersByStory,
+    filterKey,
+    rawStorySearchQuery,
+    storyChapterTextMatches,
+    storyLastOnly,
+    activeStoryLastOpenedChapterId,
+  ]);
+
+  useEffect(() => {
+    if (viewMode !== 'chapters' || !rawSearchQuery) {
+      setChapterTextMatches({});
+      return;
+    }
+
+    let cancelled = false;
+    setChapterTextMatches({});
+
+    const chaptersToSearch = stories.flatMap((story) =>
+      (chaptersByStory[story.id] ?? []).filter((chapter) =>
+        matchesChapterFilter(chapter, filterKey),
+      ),
+    );
+
+    void (async () => {
+      let pendingMatches: Record<number, OfflineChapterTextMatch> = {};
+
+      for (const chapter of chaptersToSearch) {
+        const fullChapter = chapter.originalHtml
+          ? chapter
+          : await getOfflineChapterById(chapter.id);
+        if (cancelled) {
+          return;
+        }
+
+        if (!fullChapter) {
+          continue;
+        }
+
+        const textMatch = findOfflineChapterTextMatch(fullChapter, rawSearchQuery, dictionary);
+        if (!textMatch) {
+          continue;
+        }
+
+        pendingMatches[chapter.id] = textMatch;
+        if (Object.keys(pendingMatches).length >= CHAPTER_SEARCH_BATCH_SIZE) {
+          const nextMatches = pendingMatches;
+          pendingMatches = {};
+          setChapterTextMatches((currentMatches) => ({ ...currentMatches, ...nextMatches }));
+        }
+      }
+
+      if (!cancelled && Object.keys(pendingMatches).length > 0) {
+        setChapterTextMatches((currentMatches) => ({ ...currentMatches, ...pendingMatches }));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [chaptersByStory, dictionary, filterKey, rawSearchQuery, stories, viewMode]);
+
+  useEffect(() => {
+    if (!activeStory || !rawStorySearchQuery) {
+      setStoryChapterTextMatches({});
+      return;
+    }
+
+    let cancelled = false;
+    setStoryChapterTextMatches({});
+
+    const storyChapters = chaptersByStory[activeStory.id] ?? [];
+    const chaptersToSearch = storyChapters.filter((chapter) =>
+      storyLastOnly
+        ? chapter.id === activeStoryLastOpenedChapterId
+        : matchesChapterFilter(chapter, filterKey),
+    );
+
+    void (async () => {
+      let pendingMatches: Record<number, OfflineChapterTextMatch> = {};
+
+      for (const chapter of chaptersToSearch) {
+        const fullChapter = chapter.originalHtml
+          ? chapter
+          : await getOfflineChapterById(chapter.id);
+        if (cancelled) {
+          return;
+        }
+
+        if (!fullChapter) {
+          continue;
+        }
+
+        const textMatch = findOfflineChapterTextMatch(fullChapter, rawStorySearchQuery, dictionary);
+        if (!textMatch) {
+          continue;
+        }
+
+        pendingMatches[chapter.id] = textMatch;
+        if (Object.keys(pendingMatches).length >= CHAPTER_SEARCH_BATCH_SIZE) {
+          const nextMatches = pendingMatches;
+          pendingMatches = {};
+          setStoryChapterTextMatches((currentMatches) => ({
+            ...currentMatches,
+            ...nextMatches,
+          }));
+        }
+      }
+
+      if (!cancelled && Object.keys(pendingMatches).length > 0) {
+        setStoryChapterTextMatches((currentMatches) => ({
+          ...currentMatches,
+          ...pendingMatches,
+        }));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeStory,
+    activeStoryLastOpenedChapterId,
+    chaptersByStory,
     dictionary,
     filterKey,
     rawStorySearchQuery,
     storyLastOnly,
-    activeStoryLastOpenedChapterId,
   ]);
 
   const jumpTargets = useMemo(() => {

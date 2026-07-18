@@ -72,10 +72,9 @@ function injectIntoHead(html: string, injected: string): string {
   return `<head>${injected}</head>${html}`;
 }
 
-function annotateHanVietTextWithPinyin(
+function annotateHanVietTextWithDefinitions(
   text: string,
   dictionary: Record<string, string>,
-  pinyinDictionary: Record<string, string>,
   segmentId: number,
 ): string {
   let output = '';
@@ -85,10 +84,8 @@ function annotateHanVietTextWithPinyin(
   for (const ch of text) {
     if (isChineseCharacter(ch)) {
       const hvWord = dictionary[ch] || ch;
-      const pinyin = pinyinDictionary[ch] || '';
-      const tooltip = pinyin ? `${ch}\n${pinyin}` : ch;
       const breakAttribute = breakBeforeNextChinese ? ' data-hv-break-before="1"' : '';
-      output += `<span class="hv-word" data-original="${escapeAttribute(tooltip)}" data-chinese="${escapeAttribute(ch)}" data-pinyin="${escapeAttribute(pinyin)}" data-han-viet="${escapeAttribute(hvWord)}" data-hv-segment-id="${segmentId}" data-hv-segment-index="${segmentIndex}"${breakAttribute}>${escapeHtml(hvWord)}</span>`;
+      output += `<span class="hv-word" data-chinese="${escapeAttribute(ch)}" data-hv-segment-id="${segmentId}" data-hv-segment-index="${segmentIndex}"${breakAttribute}>${escapeHtml(hvWord)}</span>`;
       if (hvWord !== ch) {
         output += ' ';
       }
@@ -105,23 +102,15 @@ function annotateHanVietTextWithPinyin(
   return output;
 }
 
-function annotateChineseTextWithPinyin(
-  text: string,
-  dictionary: Record<string, string>,
-  pinyinDictionary: Record<string, string>,
-  segmentId: number,
-): string {
+function annotateChineseTextWithDefinitions(text: string, segmentId: number): string {
   let output = '';
   let segmentIndex = 0;
   let breakBeforeNextChinese = false;
 
   for (const ch of text) {
     if (isChineseCharacter(ch)) {
-      const hvWord = dictionary[ch] || '';
-      const pinyin = pinyinDictionary[ch] || '';
-      const tooltip = [pinyin, hvWord].filter(Boolean).join('\n');
       const breakAttribute = breakBeforeNextChinese ? ' data-hv-break-before="1"' : '';
-      output += `<span class="hv-word" data-original="${escapeAttribute(tooltip)}" data-chinese="${escapeAttribute(ch)}" data-pinyin="${escapeAttribute(pinyin)}" data-han-viet="${escapeAttribute(hvWord)}" data-hv-segment-id="${segmentId}" data-hv-segment-index="${segmentIndex}"${breakAttribute}>${escapeHtml(ch)}</span>`;
+      output += `<span class="hv-word" data-chinese="${escapeAttribute(ch)}" data-hv-segment-id="${segmentId}" data-hv-segment-index="${segmentIndex}"${breakAttribute}>${escapeHtml(ch)}</span>`;
       segmentIndex += 1;
       breakBeforeNextChinese = false;
     } else {
@@ -167,7 +156,7 @@ export function normalizeEpubFullSiteHtml(
   return injectIntoHead(html, injected);
 }
 
-function buildTooltipEnhancements(): string {
+function buildDefinitionLookupEnhancements(): string {
   return [
     '<style>',
     '.hv-word { cursor: pointer; }',
@@ -190,15 +179,11 @@ function buildTooltipEnhancements(): string {
     '    clearHighlights();',
     '  }',
     '  function getWordCharacter(word) { return word.getAttribute("data-chinese") || ""; }',
-    '  function getWordPinyin(word) { return word.getAttribute("data-pinyin") || ""; }',
-    '  function getWordHanViet(word) { return word.getAttribute("data-han-viet") || ""; }',
     '  function getSelectedWords() {',
     '    if (!currentLookup) return [];',
     '    return currentLookup.words.slice(currentLookup.start, currentLookup.end);',
     '  }',
     '  function getSelectedText() { return getSelectedWords().map(getWordCharacter).join(""); }',
-    '  function getSelectedPinyin() { return getSelectedWords().map(getWordPinyin).filter(Boolean).join(" "); }',
-    '  function getSelectedHanViet() { return getSelectedWords().map(getWordHanViet).filter(Boolean).join(" "); }',
     '  function applyHighlights() {',
     '    clearHighlights();',
     '    if (!currentLookup) return;',
@@ -217,12 +202,11 @@ function buildTooltipEnhancements(): string {
     '  };',
     '  function collectSegmentWords(target) {',
     '    var segmentId = target.getAttribute("data-hv-segment-id") || "";',
-    '    var candidates = document.querySelectorAll(".hv-word[data-chinese]");',
+    '    var selector = segmentId ? ".hv-word[data-chinese][data-hv-segment-id=\\"" + segmentId + "\\"]" : ".hv-word[data-chinese]";',
+    '    var candidates = document.querySelectorAll(selector);',
     '    var segmentWords = [];',
     '    for (var index = 0; index < candidates.length; index += 1) {',
-    '      if (!segmentId || candidates[index].getAttribute("data-hv-segment-id") === segmentId) {',
-    '        segmentWords.push(candidates[index]);',
-    '      }',
+    '      segmentWords.push(candidates[index]);',
     '    }',
     '    var position = segmentWords.indexOf(target);',
     '    if (position < 0) {',
@@ -259,14 +243,10 @@ function buildTooltipEnhancements(): string {
     '      chineseContext: currentLookup.words.map(getWordCharacter).join(""),',
     '      characterIndex: currentLookup.activeIndex,',
     '      selectedWord: getSelectedText(),',
-    '      selectedPinyin: getSelectedPinyin(),',
-    '      selectedHanViet: getSelectedHanViet(),',
     '      selectedStart: currentLookup.start,',
     '      selectedEnd: currentLookup.end,',
     '      segmentLength: currentLookup.words.length,',
-    '      fallbackWord: getWordCharacter(currentLookup.words[currentLookup.activeIndex]),',
-    '      fallbackPinyin: getWordPinyin(currentLookup.words[currentLookup.activeIndex]),',
-    '      fallbackHanViet: getWordHanViet(currentLookup.words[currentLookup.activeIndex])',
+    '      fallbackWord: getWordCharacter(currentLookup.words[currentLookup.activeIndex])',
     '    };',
     '  }',
     '  function requestLookup(mode) {',
@@ -331,40 +311,43 @@ function buildTooltipEnhancements(): string {
   ].join('');
 }
 
-export function stripPresentationHtmlWithHvTooltips(
+export function stripPresentationHtmlWithHvDefinitions(
   html: string,
   fontSize: number,
   dictionary: Record<string, string>,
-  pinyinDictionary: Record<string, string>,
   readerTheme: Theme['reader'],
 ): string {
   let segmentId = 0;
   const output = stripPresentationMarkup(html).replace(/>([^<>]+)</g, (_, text: string) => {
     if (!text.trim()) return `>${text}<`;
     segmentId += 1;
-    return `>${annotateHanVietTextWithPinyin(text, dictionary, pinyinDictionary, segmentId)}<`;
+    return `>${annotateHanVietTextWithDefinitions(text, dictionary, segmentId)}<`;
   });
 
-  const injected = [buildReaderStyle(fontSize, readerTheme), buildTooltipEnhancements()].join('');
+  const injected = [
+    buildReaderStyle(fontSize, readerTheme),
+    buildDefinitionLookupEnhancements(),
+  ].join('');
 
   return injectIntoHead(output, injected);
 }
 
-export function stripPresentationHtmlWithChineseTooltips(
+export function stripPresentationHtmlWithChineseDefinitions(
   html: string,
   fontSize: number,
-  dictionary: Record<string, string>,
-  pinyinDictionary: Record<string, string>,
   readerTheme: Theme['reader'],
 ): string {
   let segmentId = 0;
   const output = stripPresentationMarkup(html).replace(/>([^<>]+)</g, (_, text: string) => {
     if (!text.trim()) return `>${text}<`;
     segmentId += 1;
-    return `>${annotateChineseTextWithPinyin(text, dictionary, pinyinDictionary, segmentId)}<`;
+    return `>${annotateChineseTextWithDefinitions(text, segmentId)}<`;
   });
 
-  const injected = [buildReaderStyle(fontSize, readerTheme), buildTooltipEnhancements()].join('');
+  const injected = [
+    buildReaderStyle(fontSize, readerTheme),
+    buildDefinitionLookupEnhancements(),
+  ].join('');
 
   return injectIntoHead(output, injected);
 }

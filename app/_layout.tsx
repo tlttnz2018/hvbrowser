@@ -35,6 +35,7 @@ import { usePageLoader } from '../hooks/usePageLoader';
 import { useAppStore } from '../stores/useAppStore';
 import { useWebPageStore } from '../stores/useWebPageStore';
 import { absoluteFill, Theme, useTheme } from '../theme';
+import { initializeDefinitionWordIndex } from '../utils/definition-dictionary';
 import { ensureEpubImportQueueRunning } from '../utils/epub-import-queue';
 import { ensureOfflineDownloadQueueRunning } from '../utils/offline-download-queue';
 
@@ -59,7 +60,6 @@ export default function RootLayout() {
   const initializeBookmarks = useAppStore((s) => s.initializeBookmarks);
   const initializeOfflineLibrary = useAppStore((s) => s.initializeOfflineLibrary);
   const setDictionary = useAppStore((s) => s.setDictionary);
-  const setPinyinDictionary = useAppStore((s) => s.setPinyinDictionary);
   const loading = useAppStore((s) => s.loading);
   const bookmarkEditorVisible = useAppStore((s) => s.bookmarkEditorVisible);
   const pendingBookmarkDraft = useAppStore((s) => s.pendingBookmarkDraft);
@@ -89,10 +89,11 @@ export default function RootLayout() {
   // Load dictionary on mount
   useEffect(() => {
     const dict = require('../data/DataHanVietUni.json') as Record<string, string>;
-    const pinyinDict = require('../data/PinyinData.json') as Record<string, string>;
     setDictionary(dict);
-    setPinyinDictionary(pinyinDict);
-  }, [setDictionary, setPinyinDictionary]);
+    initializeDefinitionWordIndex().catch((error) => {
+      console.error('Definition word index initialization error:', error);
+    });
+  }, [setDictionary]);
 
   useEffect(() => {
     initializeBookmarks().catch((error) => {

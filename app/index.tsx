@@ -1,5 +1,5 @@
 import { FontAwesome6 } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -25,8 +25,8 @@ import {
 import { extractBaseUrl } from '../utils/normalize-url';
 import {
   normalizeEpubFullSiteHtml,
-  stripPresentationHtmlWithChineseTooltips,
-  stripPresentationHtmlWithHvTooltips,
+  stripPresentationHtmlWithChineseDefinitions,
+  stripPresentationHtmlWithHvDefinitions,
 } from '../utils/webview-html';
 
 type DefinitionLookupMode = 'best' | 'exact';
@@ -43,14 +43,10 @@ interface DefinitionLookupPayload {
   chineseContext?: string;
   characterIndex?: number;
   selectedWord?: string;
-  selectedPinyin?: string;
-  selectedHanViet?: string;
   selectedStart?: number;
   selectedEnd?: number;
   segmentLength?: number;
   fallbackWord?: string;
-  fallbackPinyin?: string;
-  fallbackHanViet?: string;
   results?: Array<{
     id: string;
     label: string;
@@ -72,10 +68,40 @@ interface DefinitionSheetState {
   canExpand: boolean;
 }
 
+const MAX_READER_SCROLL_CACHE_ENTRIES = 40;
+const MAX_SAVED_CHAPTER_CACHE_ENTRIES = 80;
+
+function pruneStringKeyedRecord<T>(record: Record<string, T>, maxEntries: number) {
+  const keys = Object.keys(record);
+  if (keys.length <= maxEntries) {
+    return;
+  }
+
+  keys.slice(0, keys.length - maxEntries).forEach((key) => {
+    delete record[key];
+  });
+}
+
+function pruneSavedChapterRecord<T extends { savedAt: number }>(
+  record: Record<number, T>,
+  maxEntries: number,
+) {
+  const entries = Object.entries(record);
+  if (entries.length <= maxEntries) {
+    return;
+  }
+
+  entries
+    .sort(([, left], [, right]) => left.savedAt - right.savedAt)
+    .slice(0, entries.length - maxEntries)
+    .forEach(([key]) => {
+      delete record[Number(key)];
+    });
+}
+
 interface DefinitionSelectionState {
   word: string;
   pinyin: string;
-  hanViet: string;
   start: number;
   end: number;
   activeIndex: number;
@@ -185,8 +211,7 @@ function getInitialSelectionFromPayload(
 
   return {
     word: payload.selectedWord ?? payload.fallbackWord ?? '',
-    pinyin: payload.selectedPinyin ?? payload.fallbackPinyin ?? '',
-    hanViet: payload.selectedHanViet ?? payload.fallbackHanViet ?? '',
+    pinyin: '',
     start,
     end,
     activeIndex,
@@ -237,15 +262,13 @@ function buildDefinitionSheetState(
   selection: DefinitionSelectionState,
 ): DefinitionSheetState {
   const controls = getSelectionControls(selection);
-  const hanViet = selection.hanViet;
-  const meaning =
-    entry?.meaning ?? (hanViet ? `Han-Viet: ${hanViet}` : 'No dictionary entry found.');
+  const meaning = entry?.meaning ?? 'No dictionary entry found.';
 
   return {
     lookupId,
     word: selection.word,
     pinyin: selection.pinyin,
-    hanViet,
+    hanViet: entry?.hanViet ?? '',
     meaning,
     loading: false,
     ...controls,
@@ -284,7 +307,6 @@ export default function IndexScreen() {
   );
   const currentOfflineStory = useAppStore((s) => s.getCurrentOfflineStoryFromState());
   const dictionary = useAppStore((s) => s.dictionary);
-  const pinyinDictionary = useAppStore((s) => s.pinyinDictionary);
   const setLoading = useAppStore((s) => s.setLoading);
   const setLoadingStage = useAppStore((s) => s.setLoadingStage);
   const setPendingContentAnchor = useAppStore((s) => s.setPendingContentAnchor);
@@ -328,6 +350,7 @@ export default function IndexScreen() {
       null;
     if (scrollRatio != null && Number.isFinite(scrollRatio)) {
       readerScrollPositionsRef.current[currentUrl] = scrollRatio;
+      pruneStringKeyedRecord(readerScrollPositionsRef.current, MAX_READER_SCROLL_CACHE_ENTRIES);
     }
     pendingReaderRestoreUrlRef.current =
       scrollRatio != null && Number.isFinite(scrollRatio) ? currentUrl : null;
@@ -359,6 +382,10 @@ export default function IndexScreen() {
         ratio: safeRatio,
         savedAt: now,
       };
+      pruneSavedChapterRecord(
+        savedReaderScrollPositionsRef.current,
+        MAX_SAVED_CHAPTER_CACHE_ENTRIES,
+      );
 
       updateOfflineChapterReaderScrollRatio(chapterId, safeRatio).catch((error) => {
         console.error('Offline reader scroll save error:', error);
@@ -387,6 +414,7 @@ export default function IndexScreen() {
         isHV: nextIsHV,
         savedAt: now,
       };
+      pruneSavedChapterRecord(savedReaderPreferencesRef.current, MAX_SAVED_CHAPTER_CACHE_ENTRIES);
 
       updateOfflineChapterReaderPreferences(chapterId, {
         readerFontSize: safeFontSize,
@@ -567,15 +595,13 @@ export default function IndexScreen() {
             if (node.nodeType === 1) {
               var element = node;
               var tagName = (element.tagName || '').toLowerCase();
-              if (tagName === 'script' || tagName === 'style' || element.id === 'hv-tooltip') {
+              if (tagName === 'script' || tagName === 'style') {
                 return;
               }
               if (element.classList && element.classList.contains('hv-word')) {
                 var visible = element.textContent || '';
-                var original = element.getAttribute('data-original') || '';
-                var lines = original.split('\\n');
-                var chinese = hasChinese(visible) ? visible : (lines[0] || visible);
-                var hanViet = hasChinese(visible) ? (lines[lines.length - 1] || visible) : visible;
+                var chinese = element.getAttribute('data-chinese') || visible;
+                var hanViet = visible;
                 tokens.push({ visible: visible, chinese: chinese, hanViet: hanViet, target: element });
                 return;
               }
@@ -734,6 +760,10 @@ export default function IndexScreen() {
             }
             const scrollRatio = Math.max(0, Math.min(1, payload.ratio));
             readerScrollPositionsRef.current[currentUrl] = scrollRatio;
+            pruneStringKeyedRecord(
+              readerScrollPositionsRef.current,
+              MAX_READER_SCROLL_CACHE_ENTRIES,
+            );
             if (
               (currentOfflineStory?.sourceType === 'epub' ||
                 currentOfflineStory?.sourceType === 'txt') &&
@@ -776,7 +806,7 @@ export default function IndexScreen() {
             lookupId,
             word: initialSelection.word,
             pinyin: initialSelection.pinyin,
-            hanViet: initialSelection.hanViet,
+            hanViet: '',
             meaning: 'Looking up...',
             loading: true,
             ...getSelectionControls(initialSelection),
@@ -784,7 +814,9 @@ export default function IndexScreen() {
           void (async () => {
             const entry =
               lookupPayload.lookupMode === 'exact' && lookupPayload.selectedWord
-                ? await findDefinitionByWord(lookupPayload.selectedWord)
+                ? await findDefinitionByWord(lookupPayload.selectedWord, {
+                    chineseContext: lookupPayload.chineseContext,
+                  })
                 : typeof lookupPayload.chineseContext === 'string' &&
                     typeof lookupPayload.characterIndex === 'number'
                   ? await findBestDefinitionMatch(
@@ -804,12 +836,8 @@ export default function IndexScreen() {
               fallback: {
                 word: selection.word,
                 pinyin: selection.pinyin,
-                hanViet: selection.hanViet,
-                meaning:
-                  entry?.meaning ??
-                  (selection.hanViet
-                    ? `Han-Viet: ${selection.hanViet}`
-                    : 'No dictionary entry found.'),
+                hanViet: entry?.hanViet ?? '',
+                meaning: entry?.meaning ?? 'No dictionary entry found.',
               },
             };
 
@@ -892,25 +920,15 @@ export default function IndexScreen() {
   const activeHtml = isHV ? htmlHV : htmlOrig;
   const hasHtml = !!activeHtml;
   const isCurrentEpub = currentOfflineStory?.sourceType === 'epub';
-  const htmlSource = fullSite
-    ? isCurrentEpub
-      ? normalizeEpubFullSiteHtml(activeHtml, theme.reader)
-      : activeHtml
-    : isHV
-      ? stripPresentationHtmlWithHvTooltips(
-          htmlOrig,
-          fontSize,
-          dictionary,
-          pinyinDictionary,
-          theme.reader,
-        )
-      : stripPresentationHtmlWithChineseTooltips(
-          htmlOrig,
-          fontSize,
-          dictionary,
-          pinyinDictionary,
-          theme.reader,
-        );
+  const htmlSource = useMemo(() => {
+    if (fullSite) {
+      return isCurrentEpub ? normalizeEpubFullSiteHtml(activeHtml, theme.reader) : activeHtml;
+    }
+
+    return isHV
+      ? stripPresentationHtmlWithHvDefinitions(htmlOrig, fontSize, dictionary, theme.reader)
+      : stripPresentationHtmlWithChineseDefinitions(htmlOrig, fontSize, theme.reader);
+  }, [activeHtml, dictionary, fontSize, fullSite, htmlOrig, isCurrentEpub, isHV, theme.reader]);
   const baseUrl =
     currentUrl && /^(https?:|file:)/i.test(currentUrl) ? extractBaseUrl(currentUrl) : undefined;
   const restoreReaderScrollPosition = useCallback(() => {
@@ -1037,7 +1055,11 @@ export default function IndexScreen() {
           definitionSheet.hanViet ? `HV: ${definitionSheet.hanViet}` : '',
           definitionSheet.meaning,
         ].filter((line): line is string => !!line)
-      : [definitionSheet.pinyin, definitionSheet.meaning].filter(Boolean)
+      : [
+          definitionSheet.pinyin,
+          definitionSheet.hanViet ? `HV: ${definitionSheet.hanViet}` : '',
+          definitionSheet.meaning,
+        ].filter(Boolean)
     : [];
 
   const sendDefinitionAction = useCallback((action: 'prev' | 'next' | 'shrink' | 'expand') => {

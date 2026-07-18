@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 
-import type { OfflineChapterRecord } from '../../db/offline';
+import { getOfflineChapterById, type OfflineChapterRecord } from '../../db/offline';
 import { useOfflineDownloads } from '../../hooks/useOfflineDownloads';
 import { usePageLoader } from '../../hooks/usePageLoader';
 import { useAppStore } from '../../stores/useAppStore';
@@ -31,6 +31,7 @@ interface WebTextToolbarProps {
 
 const EMPTY_CHAPTERS: OfflineChapterRecord[] = [];
 const ESTIMATED_CONTENT_ROW_HEIGHT = 78;
+const CHAPTER_SEARCH_BATCH_SIZE = 12;
 
 type ContentsFilterKey = 'all' | 'current';
 type ContentsRow = {
@@ -84,6 +85,9 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
   const contentsListRef = useRef<FlatList<ContentsRow>>(null);
   const [contentsVisible, setContentsVisible] = useState(false);
   const [contentsSearchQuery, setContentsSearchQuery] = useState('');
+  const [chapterTextMatches, setChapterTextMatches] = useState<
+    Record<number, OfflineChapterTextMatch>
+  >({});
   const [contentsFilterKey, setContentsFilterKey] = useState<ContentsFilterKey>('all');
   const [readerSearchVisible, setReaderSearchVisible] = useState(false);
   const [readerSearchQuery, setReaderSearchQuery] = useState('');
@@ -162,7 +166,7 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
       const titleMatch = `${chapter.chapterName} ${chapter.chapterUrl}`
         .toLowerCase()
         .includes(titleQuery);
-      const textMatch = findOfflineChapterTextMatch(chapter, rawQuery, dictionary);
+      const textMatch = chapterTextMatches[chapter.id] ?? null;
 
       if (textMatch) {
         rows.push({ chapter, titleMatch, textMatch });
@@ -179,7 +183,7 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
     contentsSearchQuery,
     currentOfflineChapterId,
     currentStoryChapters,
-    dictionary,
+    chapterTextMatches,
   ]);
   const contentsSummaryLabel = `${contentsRows.length} visible • ${currentStoryChapters.length} total`;
   const contentsJumpTargets = useMemo(() => {
@@ -214,8 +218,68 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
     if (!contentsVisible) {
       setContentsSearchQuery('');
       setContentsFilterKey('all');
+      setChapterTextMatches({});
     }
   }, [contentsVisible]);
+
+  useEffect(() => {
+    const rawQuery = contentsSearchQuery.trim();
+    if (!contentsVisible || !rawQuery) {
+      setChapterTextMatches({});
+      return;
+    }
+
+    let cancelled = false;
+    setChapterTextMatches({});
+
+    const chaptersToSearch = currentStoryChapters.filter((chapter) =>
+      matchesContentsFilter(chapter, contentsFilterKey, currentOfflineChapterId),
+    );
+
+    void (async () => {
+      let pendingMatches: Record<number, OfflineChapterTextMatch> = {};
+
+      for (const chapter of chaptersToSearch) {
+        const fullChapter = chapter.originalHtml
+          ? chapter
+          : await getOfflineChapterById(chapter.id);
+        if (cancelled) {
+          return;
+        }
+
+        if (!fullChapter) {
+          continue;
+        }
+
+        const textMatch = findOfflineChapterTextMatch(fullChapter, rawQuery, dictionary);
+        if (!textMatch) {
+          continue;
+        }
+
+        pendingMatches[chapter.id] = textMatch;
+        if (Object.keys(pendingMatches).length >= CHAPTER_SEARCH_BATCH_SIZE) {
+          const nextMatches = pendingMatches;
+          pendingMatches = {};
+          setChapterTextMatches((currentMatches) => ({ ...currentMatches, ...nextMatches }));
+        }
+      }
+
+      if (!cancelled && Object.keys(pendingMatches).length > 0) {
+        setChapterTextMatches((currentMatches) => ({ ...currentMatches, ...pendingMatches }));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    contentsFilterKey,
+    contentsSearchQuery,
+    contentsVisible,
+    currentOfflineChapterId,
+    currentStoryChapters,
+    dictionary,
+  ]);
 
   useEffect(() => {
     if (!readerSearchVisible) {

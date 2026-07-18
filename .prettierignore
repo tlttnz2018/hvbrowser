@@ -5,3 +5,4 @@ dist
 build
 coverage
 bun.lock
+data/definition-word-index.json

@@ -95,7 +95,6 @@ interface AppState {
   bookmarksHydrated: boolean;
   bookmarks: Bookmark[];
   dictionary: Record<string, string>;
-  pinyinDictionary: Record<string, string>;
   offlineLibraryHydrated: boolean;
   offlineStories: OfflineStoryRecord[];
   offlineChaptersByStory: Record<number, OfflineChapterRecord[]>;
@@ -153,7 +152,6 @@ interface AppState {
   exportOfflineLibraryBackup: (directory: Directory) => Promise<File>;
   importOfflineLibraryBackup: (file: File) => Promise<OfflineLibraryImportResult>;
   setDictionary: (dict: Record<string, string>) => void;
-  setPinyinDictionary: (dict: Record<string, string>) => void;
   enqueueOfflineChapter: (input: {
     storyId: number;
     chapterName: string;
@@ -209,7 +207,7 @@ function normalizeOfflineChapterLookupUrl(url: string) {
 function groupOfflineChapters(chapters: OfflineChapterRecord[]) {
   return chapters.reduce<Record<number, OfflineChapterRecord[]>>((accumulator, chapter) => {
     const next = accumulator[chapter.storyId] ?? [];
-    next.push(chapter);
+    next.push(toOfflineChapterStateRecord(chapter));
     next.sort((left, right) => {
       const leftOrder = left.chapterOrder ?? Number.MAX_SAFE_INTEGER;
       const rightOrder = right.chapterOrder ?? Number.MAX_SAFE_INTEGER;
@@ -228,6 +226,14 @@ function groupOfflineChapters(chapters: OfflineChapterRecord[]) {
   }, {});
 }
 
+function toOfflineChapterStateRecord(chapter: OfflineChapterRecord): OfflineChapterRecord {
+  return {
+    ...chapter,
+    originalHtml: '',
+    convertedHvHtml: '',
+  };
+}
+
 function flattenOfflineChapters(chaptersByStory: Record<number, OfflineChapterRecord[]>) {
   return Object.values(chaptersByStory).flat();
 }
@@ -236,10 +242,10 @@ function upsertOfflineChapterInState(
   chaptersByStory: Record<number, OfflineChapterRecord[]>,
   chapter: OfflineChapterRecord,
 ) {
-  const nextEntries = flattenOfflineChapters(chaptersByStory).filter(
-    (entry) => entry.id !== chapter.id,
-  );
-  nextEntries.push(chapter);
+  const nextEntries = flattenOfflineChapters(chaptersByStory)
+    .filter((entry) => entry.id !== chapter.id)
+    .map(toOfflineChapterStateRecord);
+  nextEntries.push(toOfflineChapterStateRecord(chapter));
   return groupOfflineChapters(nextEntries);
 }
 
@@ -268,7 +274,6 @@ export const useAppStore = create<AppState>()(
       bookmarksHydrated: false,
       bookmarks: [],
       dictionary: {},
-      pinyinDictionary: {},
       offlineLibraryHydrated: false,
       offlineStories: [],
       offlineChaptersByStory: {},
@@ -560,11 +565,14 @@ export const useAppStore = create<AppState>()(
       },
 
       setDictionary: (dictionary) => set({ dictionary }),
-      setPinyinDictionary: (pinyinDictionary) => set({ pinyinDictionary }),
 
       enqueueOfflineChapter: async ({ storyId, chapterName, chapterUrl, chapterOrder }) => {
         const existingFromState = get().getOfflineChapterByUrlFromState(chapterUrl);
-        const existing = existingFromState ?? (await getOfflineChapterByUrl(chapterUrl));
+        const existing =
+          existingFromState &&
+          ['queued', 'downloading', 'downloaded'].includes(existingFromState.downloadStatus)
+            ? existingFromState
+            : await getOfflineChapterByUrl(chapterUrl);
 
         if (existing && ['queued', 'downloading', 'downloaded'].includes(existing.downloadStatus)) {
           return existing;

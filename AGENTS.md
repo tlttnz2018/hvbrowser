@@ -10,7 +10,8 @@
 
 - EPUB imports run through persisted background jobs in `epub_import_jobs`; they should resume through the app-managed queue instead of blocking the reader.
 - EPUB chapters are stored as normal offline chapters with synthetic `epub://story/<id>/chapter/<n>` URLs and lazy `convertedHvHtml` generation.
-- Any `epub://...` open path, including bookmarks and history restores, must resolve through offline chapter lookup before remote loading.
+- TXT imports are split into normal offline chapters with synthetic `txt://story/<id>/chapter/<n>` URLs and lazy `convertedHvHtml` generation; they open directly in the reader after import.
+- Any `epub://...` or `txt://...` open path, including bookmarks and history restores, must resolve through offline chapter lookup before remote loading.
 - Library tabs now share the same mobile behavior: the hero/info area scrolls away, while the tab row and tab-specific search/filter controls stay sticky.
 - Offline chapters now persist `lastOpenedAt`; use that durable field for resume behavior instead of transient UI state.
 - The in-reader TOC stays focused on `All` / `Current`, while the offline library book browser uses `Last` as a one-chapter resume view.
@@ -18,6 +19,11 @@
 - Backup restore merges remote stories by sanitized story URL, and merges EPUB stories by metadata-first matching with filename fallback/tiebreaker.
 - Backups store chapter `originalHtml` only; restored chapters regenerate `convertedHvHtml` lazily through the reader path.
 - Remote chapters restored from queued/downloading backup entries come back as `queued`, while existing downloaded content should not be downgraded by import.
+- Offline library hydration keeps chapter rows metadata-only in Zustand; full `originalHtml` / `convertedHvHtml` should be fetched by id/url only for active reads, backups, or explicit text search.
+- Reader search has two scopes: current-reader search runs inside the active WebView DOM, while cross-chapter search fetches full chapter bodies only during the search loop and stores only match snippets/results in UI state.
+- Dictionary lookup uses `data/definition-word-index.json` for in-memory word matching, then queries `data/TrungVietDictionary.sqlite` for exact `word`, `pinyin`, `hv`, and `meaning` content.
+- The definition DB is imported as `TrungVietDictionary-v2.sqlite`; bump this name again if the bundled SQLite schema changes.
+- `DataHanVietUni.json` is the merged Han-Viet character map. `newChinesePhienAm.json`, `PinyinData.json`, and `pinyin-pro` were removed; do not reintroduce pinyin JSON for dictionary sheet lookup.
 
 ## Current Stack
 
@@ -72,7 +78,10 @@ For stable architectural decisions, prefer the ADR file over growing this sectio
 - [`hooks/useOfflineDownloads.ts`](/Users/saigon/dev/hvbrowser/hooks/useOfflineDownloads.ts): role detection and queueing workflow for home/index/chapter pages
 - [`utils/downloader.ts`](/Users/saigon/dev/hvbrowser/utils/downloader.ts): fetch + charset detection + HV conversion
 - [`utils/cleanup.ts`](/Users/saigon/dev/hvbrowser/utils/cleanup.ts): HTML cleanup before conversion
+- [`utils/txt-import.ts`](/Users/saigon/dev/hvbrowser/utils/txt-import.ts): streamed TXT file import, chunking, encoding, and `txt://` offline chapter creation
 - [`utils/webview-html.ts`](/Users/saigon/dev/hvbrowser/utils/webview-html.ts): base href injection and reader HTML shaping
+- [`utils/definition-dictionary.ts`](/Users/saigon/dev/hvbrowser/utils/definition-dictionary.ts): dictionary word-index lookup and exact SQLite definition reads
+- [`utils/offline-chapter-search.ts`](/Users/saigon/dev/hvbrowser/utils/offline-chapter-search.ts): Chinese/Han-Viet text normalization and snippet generation for cross-chapter search
 - [`db/bookmarks.ts`](/Users/saigon/dev/hvbrowser/db/bookmarks.ts): bookmark migrations and CRUD
 - [`db/offline.ts`](/Users/saigon/dev/hvbrowser/db/offline.ts): offline story/chapter schema, migrations, and queries
 - [`utils/offline-download-queue.ts`](/Users/saigon/dev/hvbrowser/utils/offline-download-queue.ts): single-flight offline queue loop
@@ -96,8 +105,26 @@ For stable architectural decisions, prefer the ADR file over growing this sectio
   - link interception
   - page press dismissal
   - scroll position reporting/restoration
+  - dictionary-sheet lookup messages
 - Changes to injected JS can easily break navigation or reader restoration. Re-test on device/simulator when touching it.
 - For reader loading UX changes, do not mark loading complete until the `WebView` load-complete path has run.
+- Reader-mode dictionary annotation should keep the WebView DOM light: `.hv-word` spans carry Chinese character and segment metadata only, while pinyin/HV/meaning come from native SQLite lookup.
+
+### Reader Search
+
+- Search inside the current reader is WebView-local. `stores/useWebPageStore.ts` issues `readerSearchRequest` / jump requests, and injected JS in `app/index.tsx` builds a temporary token index from the active DOM.
+- Search across chapters is offline-library text search. It may call `getOfflineChapterById()` to inspect full chapter HTML, but it should keep only `OfflineChapterTextMatch` snippets in component state and release full chapter records after each iteration.
+- Do not add long-lived full-text indexes or arrays of chapter HTML to Zustand for search. If faster search is needed later, prefer a bounded/derived SQLite FTS table or a compact persisted index over keeping chapter bodies in memory.
+- Cross-chapter result jumps should use `readerSearchAutoJumpRequest` so opening the target chapter can search the active DOM and jump after WebView render, instead of trying to carry DOM offsets between chapters.
+
+### Dictionary Lookup
+
+- Keep dictionary matching and definition content separate:
+  - `data/definition-word-index.json` is generated from SQLite words and loaded for in-memory matching.
+  - `TrungVietDictionary.sqlite` stores definition content and includes `word`, `pinyin`, `meaning`, and `hv`.
+  - `utils/definition-dictionary.ts` caches only the active Chinese context/sentence, not a global definition cache.
+- Regenerate the word index with `bun run generate:definition-index` after changing dictionary words.
+- Repopulate SQLite `hv` from the merged Han-Viet map with `bun run merge:han-viet-dictionary` after changing `DataHanVietUni.json` or the dictionary DB.
 
 ### Navigation / History
 
@@ -114,6 +141,7 @@ For stable architectural decisions, prefer the ADR file over growing this sectio
 - Hydrating the offline library also rebuilds the in-memory download queue from queued chapter rows; [`app/_layout.tsx`](/Users/saigon/dev/hvbrowser/app/_layout.tsx) restarts the queue loop when queued items are present.
 - Existing downloaded HTML should be reused when possible instead of redownloading.
 - Saving the chapter currently open in the reader can persist the already-loaded `htmlOrig` / `htmlHV` pair directly, without waiting for the queue downloader.
+- Do not retain downloaded chapter HTML in long-lived library state. Store metadata in `offlineChaptersByStory`; fetch full chapter records through `getOfflineChapterById()` / `getOfflineChapterByUrl()` when content is truly needed.
 
 ### Bookmark Persistence
 
@@ -152,6 +180,11 @@ For stable architectural decisions, prefer the ADR file over growing this sectio
 - When changing page rendering, inspect both:
   - [`hooks/usePageLoader.ts`](/Users/saigon/dev/hvbrowser/hooks/usePageLoader.ts)
   - [`app/index.tsx`](/Users/saigon/dev/hvbrowser/app/index.tsx)
+- When changing reader search or cross-chapter search, inspect:
+  - [`stores/useWebPageStore.ts`](/Users/saigon/dev/hvbrowser/stores/useWebPageStore.ts)
+  - [`components/toolbars/WebTextToolbar.tsx`](/Users/saigon/dev/hvbrowser/components/toolbars/WebTextToolbar.tsx)
+  - [`components/OfflineLibraryList.tsx`](/Users/saigon/dev/hvbrowser/components/OfflineLibraryList.tsx)
+  - [`utils/offline-chapter-search.ts`](/Users/saigon/dev/hvbrowser/utils/offline-chapter-search.ts)
 - If the task is specifically about reader-pipeline behavior, use the repo-local skill at [`.agents/skills/reader-pipeline/SKILL.md`](.agents/skills/reader-pipeline/SKILL.md).
 
 ## Repo Commands
@@ -161,6 +194,8 @@ For stable architectural decisions, prefer the ADR file over growing this sectio
 - Launch a target directly with `bun android`, `bun ios`, or `bun web`.
 - Run validation with `bun lint`, `bun format:check`, and `bun typecheck`.
 - Apply local autofixes with `bun lint:fix` and `bun format`.
+- Regenerate dictionary word index with `bun run generate:definition-index`.
+- Sync dictionary Han-Viet content with `bun run merge:han-viet-dictionary`.
 
 ## Validation Checklist
 

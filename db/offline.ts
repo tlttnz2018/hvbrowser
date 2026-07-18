@@ -67,6 +67,7 @@ interface OfflineDatabaseSchema {
 
 type OfflineStoryRow = Selectable<OfflineStoryTable>;
 type OfflineChapterRow = Selectable<OfflineChapterTable>;
+type OfflineChapterMetadataRow = Omit<OfflineChapterRow, 'original_html' | 'converted_hv_html'>;
 type EpubImportJobRow = Selectable<EpubImportJobTable>;
 
 export interface OfflineStoryRecord {
@@ -401,6 +402,27 @@ function mapOfflineChapterRow(row: OfflineChapterRow): OfflineChapterRecord {
   };
 }
 
+function mapOfflineChapterMetadataRow(row: OfflineChapterMetadataRow): OfflineChapterRecord {
+  return {
+    id: row.id,
+    storyId: row.story_id,
+    chapterName: row.chapter_name,
+    chapterUrl: row.chapter_url,
+    chapterOrder: row.chapter_order,
+    originalHtml: '',
+    convertedHvHtml: '',
+    downloadStatus: row.download_status,
+    downloadError: row.download_error,
+    downloadedAt: row.downloaded_at,
+    lastOpenedAt: row.last_opened_at ?? null,
+    readerScrollRatio: row.reader_scroll_ratio ?? null,
+    readerFontSize: row.reader_font_size ?? null,
+    readerIsHv: row.reader_is_hv == null ? null : row.reader_is_hv !== 0,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 function mapEpubImportJobRow(row: EpubImportJobRow): EpubImportJobRecord {
   return {
     id: row.id,
@@ -677,12 +699,27 @@ export async function listOfflineChapters(): Promise<OfflineChapterRecord[]> {
 
   const rows = await offlineDb
     .selectFrom('offline_chapters')
-    .selectAll()
+    .select([
+      'id',
+      'story_id',
+      'chapter_name',
+      'chapter_url',
+      'chapter_order',
+      'download_status',
+      'download_error',
+      'downloaded_at',
+      'last_opened_at',
+      'reader_scroll_ratio',
+      'reader_font_size',
+      'reader_is_hv',
+      'created_at',
+      'updated_at',
+    ])
     .orderBy('chapter_order', 'asc')
     .orderBy('created_at', 'asc')
     .execute();
 
-  return rows.map(mapOfflineChapterRow);
+  return rows.map(mapOfflineChapterMetadataRow);
 }
 
 export async function listOfflineChaptersByStory(storyId: number): Promise<OfflineChapterRecord[]> {
@@ -690,13 +727,28 @@ export async function listOfflineChaptersByStory(storyId: number): Promise<Offli
 
   const rows = await offlineDb
     .selectFrom('offline_chapters')
-    .selectAll()
+    .select([
+      'id',
+      'story_id',
+      'chapter_name',
+      'chapter_url',
+      'chapter_order',
+      'download_status',
+      'download_error',
+      'downloaded_at',
+      'last_opened_at',
+      'reader_scroll_ratio',
+      'reader_font_size',
+      'reader_is_hv',
+      'created_at',
+      'updated_at',
+    ])
     .where('story_id', '=', storyId)
     .orderBy('chapter_order', 'asc')
     .orderBy('created_at', 'asc')
     .execute();
 
-  return rows.map(mapOfflineChapterRow);
+  return rows.map(mapOfflineChapterMetadataRow);
 }
 
 export async function listOfflineChapterBackupRecordsByStory(
