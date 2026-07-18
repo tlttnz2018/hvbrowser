@@ -35,8 +35,12 @@ interface TxtImportResult {
 
 type TxtEncoding = 'utf-8' | 'gbk';
 
-const TXT_CHAPTER_CHUNK_BYTES = 200 * 1024;
-const MIN_LINE_BREAK_CHUNK_BYTES = Math.floor(TXT_CHAPTER_CHUNK_BYTES * 0.6);
+const TXT_CHAPTER_TARGET_CHINESE_CHARS = 4000;
+const TXT_CHAPTER_MIN_CHINESE_CHARS = Math.floor(TXT_CHAPTER_TARGET_CHINESE_CHARS * 0.8);
+const TXT_CHAPTER_MAX_CHINESE_CHARS = Math.floor(TXT_CHAPTER_TARGET_CHINESE_CHARS * 1.2);
+const TXT_FALLBACK_TARGET_TEXT_CHARS = 12000;
+const TXT_FALLBACK_MIN_TEXT_CHARS = Math.floor(TXT_FALLBACK_TARGET_TEXT_CHARS * 0.8);
+const TXT_FALLBACK_MAX_TEXT_CHARS = Math.floor(TXT_FALLBACK_TARGET_TEXT_CHARS * 1.2);
 const READ_BUFFER_BYTES = 64 * 1024;
 const TXT_CACHE_ROOT = new Directory(Paths.cache, 'txt-imports');
 
@@ -261,17 +265,6 @@ function getSafeGbkChunkEnd(bytes: TxtBytes, start: number, targetEnd: number) {
   return end;
 }
 
-function preferLineBreakChunkEnd(bytes: TxtBytes, start: number, end: number) {
-  const minEnd = start + MIN_LINE_BREAK_CHUNK_BYTES;
-  for (let index = end - 1; index >= minEnd; index -= 1) {
-    if (bytes[index] === 0x0a) {
-      return index + 1;
-    }
-  }
-
-  return end;
-}
-
 function concatBytes(left: TxtBytes, right: TxtBytes): TxtBytes {
   if (left.length === 0) {
     return right;
@@ -286,22 +279,98 @@ function concatBytes(left: TxtBytes, right: TxtBytes): TxtBytes {
   return combined;
 }
 
-function getChunkEnd(bytes: TxtBytes, encoding: TxtEncoding, forceSplit: boolean) {
-  if (!forceSplit || bytes.length <= TXT_CHAPTER_CHUNK_BYTES) {
+function getSafeDecodeByteEnd(bytes: TxtBytes, encoding: TxtEncoding, reachedEnd: boolean) {
+  if (reachedEnd) {
     return bytes.length;
   }
 
-  const targetEnd = TXT_CHAPTER_CHUNK_BYTES;
-  const safeEnd =
-    encoding === 'utf-8'
-      ? getSafeUtf8ChunkEnd(bytes, 0, targetEnd)
-      : getSafeGbkChunkEnd(bytes, 0, targetEnd);
+  if (bytes.length <= READ_BUFFER_BYTES) {
+    return 0;
+  }
 
-  return preferLineBreakChunkEnd(bytes, 0, safeEnd);
+  return encoding === 'utf-8'
+    ? getSafeUtf8ChunkEnd(bytes, 0, READ_BUFFER_BYTES)
+    : getSafeGbkChunkEnd(bytes, 0, READ_BUFFER_BYTES);
 }
 
 function yieldToApp() {
   return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function isChineseCharacter(value: string) {
+  return /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u.test(value);
+}
+
+function getIndexAtChineseCount(text: string, targetCount: number) {
+  let chineseCount = 0;
+  let index = 0;
+
+  for (const character of text) {
+    index += character.length;
+    if (isChineseCharacter(character)) {
+      chineseCount += 1;
+      if (chineseCount >= targetCount) {
+        return index;
+      }
+    }
+  }
+
+  return null;
+}
+
+function findPreferredTextBoundary(
+  text: string,
+  minIndex: number,
+  targetIndex: number,
+  maxIndex: number,
+) {
+  const boundaryPattern = /[\n。！？!?；;]\s*/g;
+  let bestBefore: number | null = null;
+  let match: RegExpExecArray | null;
+
+  boundaryPattern.lastIndex = minIndex;
+  while ((match = boundaryPattern.exec(text)) && match.index < targetIndex) {
+    bestBefore = match.index + match[0].length;
+  }
+
+  if (bestBefore != null) {
+    return bestBefore;
+  }
+
+  boundaryPattern.lastIndex = targetIndex;
+  match = boundaryPattern.exec(text);
+  if (match && match.index < maxIndex) {
+    return match.index + match[0].length;
+  }
+
+  return targetIndex;
+}
+
+function getReadyTextSplitIndex(text: string, force: boolean) {
+  const minChineseIndex = getIndexAtChineseCount(text, TXT_CHAPTER_MIN_CHINESE_CHARS);
+  const targetChineseIndex = getIndexAtChineseCount(text, TXT_CHAPTER_TARGET_CHINESE_CHARS);
+
+  if (targetChineseIndex != null) {
+    const maxChineseIndex =
+      getIndexAtChineseCount(text, TXT_CHAPTER_MAX_CHINESE_CHARS) ?? text.length;
+    return findPreferredTextBoundary(
+      text,
+      minChineseIndex ?? 0,
+      targetChineseIndex,
+      maxChineseIndex,
+    );
+  }
+
+  if (text.length > TXT_FALLBACK_MAX_TEXT_CHARS) {
+    return findPreferredTextBoundary(
+      text,
+      TXT_FALLBACK_MIN_TEXT_CHARS,
+      TXT_FALLBACK_TARGET_TEXT_CHARS,
+      TXT_FALLBACK_MAX_TEXT_CHARS,
+    );
+  }
+
+  return force && text.length > 0 ? text.length : null;
 }
 
 function escapeHtml(value: string) {
@@ -344,10 +413,11 @@ export async function importTxtFile(file: TxtImportFile): Promise<TxtImportResul
     sourceFileName: fileName,
   });
   const fileSize = file.size ?? null;
-  const splitImport = fileSize == null || fileSize > TXT_CHAPTER_CHUNK_BYTES;
+  const splitImport = fileSize == null || fileSize > TXT_CHAPTER_TARGET_CHINESE_CHARS * 3;
   const handle = file.open();
   const downloadedAt = new Date().toISOString();
   let pendingBytes: TxtBytes = new Uint8Array();
+  let pendingText = '';
   let firstChapter: OfflineChapterRecord | null = null;
   let chapterCount = 0;
 
@@ -376,22 +446,44 @@ export async function importTxtFile(file: TxtImportFile): Promise<TxtImportResul
     chapterCount = chapterNumber;
   }
 
+  async function flushReadyText(force = false) {
+    while (pendingText.length > 0) {
+      const splitIndex = getReadyTextSplitIndex(pendingText, force);
+      if (splitIndex == null) {
+        return;
+      }
+
+      const chapterText = pendingText.slice(0, splitIndex);
+      pendingText = pendingText.slice(splitIndex).trimStart();
+      await saveNextChapter(chapterText);
+      await yieldToApp();
+
+      if (splitIndex >= pendingText.length && !force) {
+        return;
+      }
+    }
+  }
+
   try {
     while (true) {
       const bytes = handle.readBytes(READ_BUFFER_BYTES);
       const reachedEnd = bytes.length === 0;
       pendingBytes = concatBytes(pendingBytes, bytes);
 
-      while (
-        (splitImport && pendingBytes.length > TXT_CHAPTER_CHUNK_BYTES) ||
-        (reachedEnd && pendingBytes.length > 0)
-      ) {
-        const end = getChunkEnd(pendingBytes, encoding, splitImport && !reachedEnd);
+      while (pendingBytes.length > 0) {
+        const end = getSafeDecodeByteEnd(pendingBytes, encoding, reachedEnd);
+        if (end <= 0) {
+          break;
+        }
+
         const chunkBytes = pendingBytes.slice(0, end);
         pendingBytes = pendingBytes.slice(end);
+        pendingText += decodeTxtBytes(chunkBytes, encoding);
+        await flushReadyText(false);
+      }
 
-        await saveNextChapter(decodeTxtBytes(chunkBytes, encoding));
-        await yieldToApp();
+      if (reachedEnd) {
+        await flushReadyText(true);
       }
 
       if (reachedEnd) {
