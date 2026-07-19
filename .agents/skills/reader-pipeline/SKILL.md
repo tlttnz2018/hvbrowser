@@ -35,6 +35,7 @@ Read these only if needed:
 6. Offline EPUB/TXT chapters reuse the same reader surface, but their `epub://...` / `txt://...` URLs must resolve back to offline chapter records instead of going through remote fetch logic.
 7. Dictionary taps send Chinese context/indices from WebView to React Native; native code matches via `data/definition-word-index.json` and reads exact `word`/`pinyin`/`hv`/`meaning` from SQLite.
 8. Reader search has two scopes: current-reader search builds a temporary index inside the active WebView DOM, while cross-chapter search fetches full offline chapter records only while scanning and keeps only result snippets in React state.
+9. Offline book search keywords and compact cross-chapter result payloads are persisted in `offline_chapter_search_cache`; current-reader search records keyword history/counts only, not WebView result payloads.
 
 ## Invariants
 
@@ -51,6 +52,9 @@ Read these only if needed:
 - Current-reader search results live in `useWebPageStore` as transient result metadata. The full text index is built in injected JS from the active DOM and should not be persisted or mirrored into Zustand.
 - Current-reader search highlights should cover every token in a matched phrase. Store target ranges in injected JS and scroll to the first target; do not collapse multi-word or multi-character matches to only the first token.
 - Cross-chapter search may call `getOfflineChapterById()` / `getOfflineChapterByUrl()` for full bodies, but component state should keep only `OfflineChapterTextMatch` snippets/results. Do not retain searched chapter HTML after each iteration.
+- Cross-chapter search results should include every occurrence in a matching chapter, not just the first match. Keep `occurrenceIndex` stable enough for `readerSearchAutoJumpRequest` to re-resolve the target inside the opened WebView.
+- Persisted search acceleration belongs in `offline_chapter_search_cache`: store compact match snippets/occurrence indexes with a chapter signature, plus keyword `search_count` / `last_searched_at` for recent/top suggestions.
+- Current-reader search may call keyword-history recording for suggestions, but it must not persist WebView-local results or clear/replace an existing cross-chapter `result_json` / `chapter_signature`.
 - Cross-chapter result jumps should use `readerSearchAutoJumpRequest`; the target chapter should open first, then active-DOM search/jump should run after WebView render.
 - Cross-chapter result lists must remain `readerSearchScope === 'chapters'` while the user navigates them. Installing chapter results should clear pending current-reader search requests, and late `reader-search-results` messages from the WebView must not overwrite chapter-scope results.
 - `TrungVietDictionary.sqlite` includes `hv`; app imports it as `TrungVietDictionary-v2.sqlite`. Bump the import name when the bundled schema changes.
@@ -66,9 +70,11 @@ Read these only if needed:
 - EPUB bookmarks or cross-chapter links open the wrong content because a synthetic `epub://...` URL was treated like a remote URL.
 - Resume UI drifts between the in-reader TOC and the offline library because one side used transient session state instead of persisted chapter-open timestamps.
 - Long reading sessions lag because offline library hydration or queue updates retain every downloaded chapter body in app state.
-- Search causes lag because chapter text search accumulates full chapter records, DOM tokens, or converted chapter text in long-lived state instead of retaining only snippets/result metadata.
+- Search causes lag because chapter text search accumulates full chapter records, DOM tokens, or converted chapter text in long-lived state instead of retaining only snippets/result metadata or compact SQLite cache rows.
 - Reader search visually highlights only the first word/character of a phrase because the match map stored a single DOM target instead of the full token span.
+- Cross-chapter search shows only one result per chapter because a chapter-id keyed state map stores a single match instead of an array of occurrences.
 - Cross-chapter search jumps land wrong because an occurrence index from offline text search was treated as a stable DOM offset instead of being re-resolved in the opened chapter.
+- Reader-only keyword history overwrites cached cross-chapter `result_json`, making repeat cross-chapter search slow again.
 - Cross-chapter Prev/Next breaks because a stale current-reader WebView search response replaces chapter-scope results after the user opens a chapter result.
 - Dictionary lookup regresses if WebView spans reintroduce per-character pinyin/HV/tooltip payloads or if SQLite lookup stops selecting `hv`.
 

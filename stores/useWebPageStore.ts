@@ -41,6 +41,7 @@ interface WebPageState {
     chapterId: number;
     query: string;
     occurrenceIndex: number;
+    immediate?: boolean;
   } | null;
   readerSearchResults: ReaderSearchResult[];
   readerSearchBusy: boolean;
@@ -81,6 +82,7 @@ interface WebPageState {
     chapterId: number;
     query: string;
     occurrenceIndex: number;
+    immediate?: boolean;
   }) => void;
   clearReaderSearchAutoJump: (id: number) => void;
   clearReaderSearch: () => void;
@@ -241,13 +243,14 @@ export const useWebPageStore = create<WebPageState>()((set, get) => ({
     });
   },
 
-  requestReaderSearchAutoJump: ({ chapterId, query, occurrenceIndex }) =>
+  requestReaderSearchAutoJump: ({ chapterId, query, occurrenceIndex, immediate }) =>
     set({
       readerSearchAutoJumpRequest: {
         id: Date.now(),
         chapterId,
         query,
         occurrenceIndex,
+        immediate,
       },
     }),
 

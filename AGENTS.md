@@ -21,6 +21,8 @@
 - Remote chapters restored from queued/downloading backup entries come back as `queued`, while existing downloaded content should not be downgraded by import.
 - Offline library hydration keeps chapter rows metadata-only in Zustand; full `originalHtml` / `convertedHvHtml` should be fetched by id/url only for active reads, backups, or explicit text search.
 - Reader search has two scopes: current-reader search runs inside the active WebView DOM, while cross-chapter search fetches full chapter bodies only during the search loop and stores only match snippets/results in UI state.
+- Cross-chapter search returns every keyword occurrence in matching chapters, not just the first chapter hit; keep occurrence indexes aligned with WebView auto-jump resolution.
+- Offline book search keywords and cached cross-chapter results live in `offline_chapter_search_cache`; current-reader search records keyword history/counts only and must not persist WebView-local result payloads.
 - Dictionary lookup uses `data/definition-word-index.json` for in-memory word matching, then queries `data/TrungVietDictionary.sqlite` for exact `word`, `pinyin`, `hv`, and `meaning` content.
 - The definition DB is imported as `TrungVietDictionary-v2.sqlite`; bump this name again if the bundled SQLite schema changes.
 - `DataHanVietUni.json` is the merged Han-Viet character map. `newChinesePhienAm.json`, `PinyinData.json`, and `pinyin-pro` were removed; do not reintroduce pinyin JSON for dictionary sheet lookup.
@@ -115,7 +117,9 @@ For stable architectural decisions, prefer the ADR file over growing this sectio
 - Search inside the current reader is WebView-local. `stores/useWebPageStore.ts` issues `readerSearchRequest` / jump requests, and injected JS in `app/index.tsx` builds a temporary token index from the active DOM.
 - Current-reader search highlights should cover every token in a matched phrase. Store and jump to match target ranges in injected JS; do not collapse a multi-word/multi-character match to only its first `.hv-word`.
 - Search across chapters is offline-library text search. It may call `getOfflineChapterById()` to inspect full chapter HTML, but it should keep only `OfflineChapterTextMatch` snippets in component state and release full chapter records after each iteration.
-- Do not add long-lived full-text indexes or arrays of chapter HTML to Zustand for search. If faster search is needed later, prefer a bounded/derived SQLite FTS table or a compact persisted index over keeping chapter bodies in memory.
+- Search across chapters should surface all occurrences per chapter. `utils/offline-chapter-search.ts` returns per-occurrence snippets and occurrence indexes; result lists may contain multiple rows for the same chapter.
+- Do not add long-lived full-text indexes or arrays of chapter HTML to Zustand for search. Persist only compact SQLite search cache entries in `offline_chapter_search_cache`, keyed by story/query/signature, and keep full chapter bodies out of long-lived state.
+- Current-reader search may update the offline book keyword history/search count so recent/top suggestions work, but it must not overwrite existing cached cross-chapter `result_json` / `chapter_signature` for that keyword.
 - Cross-chapter result jumps should use `readerSearchAutoJumpRequest` so opening the target chapter can search the active DOM and jump after WebView render, instead of trying to carry DOM offsets between chapters.
 - Cross-chapter result lists must stay in `readerSearchScope === 'chapters'` after opening a result. Clear or ignore pending current-reader search requests when installing chapter results so late `reader-search-results` WebView messages cannot replace the chapter list and break Prev/Next across chapters.
 

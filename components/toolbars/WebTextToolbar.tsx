@@ -1,5 +1,5 @@
 import { FontAwesome6 } from '@expo/vector-icons';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -13,15 +13,27 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { getOfflineChapterById, type OfflineChapterRecord } from '../../db/offline';
+import {
+  buildOfflineChapterSearchSignature,
+  getOfflineChapterById,
+  getOfflineChapterSearchCache,
+  listOfflineChapterSearchSuggestions,
+  type OfflineChapterRecord,
+  type OfflineChapterSearchSuggestion,
+  recordOfflineChapterSearchKeyword,
+  saveOfflineChapterSearchCache,
+} from '../../db/offline';
 import { useOfflineDownloads } from '../../hooks/useOfflineDownloads';
 import { usePageLoader } from '../../hooks/usePageLoader';
 import { useAppStore } from '../../stores/useAppStore';
 import { type ReaderSearchResult, useWebPageStore } from '../../stores/useWebPageStore';
 import { Theme, useTheme } from '../../theme';
 import {
-  findOfflineChapterTextMatch,
+  findOfflineChapterTextMatches,
+  flattenOfflineChapterTextMatchesByChapter,
+  groupOfflineChapterSearchCacheMatches,
   type OfflineChapterTextMatch,
+  type OfflineChapterTextMatchesByChapter,
 } from '../../utils/offline-chapter-search';
 import { getBottomInsetWithSystemBarPadding } from '../../utils/safe-area';
 import SegmentedControl from '../buttons/SegmentedControl';
@@ -91,12 +103,21 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
   const contentsListRef = useRef<FlatList<ContentsRow>>(null);
   const [contentsVisible, setContentsVisible] = useState(false);
   const [contentsSearchQuery, setContentsSearchQuery] = useState('');
-  const [chapterTextMatches, setChapterTextMatches] = useState<
-    Record<number, OfflineChapterTextMatch>
-  >({});
+  const [chapterTextMatches, setChapterTextMatches] = useState<OfflineChapterTextMatchesByChapter>(
+    {},
+  );
+  const [contentsSearchFocused, setContentsSearchFocused] = useState(false);
+  const [contentsSearchSuggestions, setContentsSearchSuggestions] = useState<
+    OfflineChapterSearchSuggestion[]
+  >([]);
   const [contentsFilterKey, setContentsFilterKey] = useState<ContentsFilterKey>('all');
   const [readerSearchVisible, setReaderSearchVisible] = useState(false);
   const [readerSearchQuery, setReaderSearchQuery] = useState('');
+  const [readerSearchFocused, setReaderSearchFocused] = useState(false);
+  const [readerSearchSuggestions, setReaderSearchSuggestions] = useState<
+    OfflineChapterSearchSuggestion[]
+  >([]);
+  const lastRecordedReaderSearchKeyRef = useRef<string | null>(null);
   const {
     moreMenu,
     toggleMoreMenu,
@@ -155,6 +176,31 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
     currentStoryChapterIndex >= 0 && currentStoryChapterIndex < currentStoryChapters.length - 1
       ? currentStoryChapters[currentStoryChapterIndex + 1]
       : null;
+  const currentStorySearchSignature = useMemo(
+    () => buildOfflineChapterSearchSignature(currentStoryChapters),
+    [currentStoryChapters],
+  );
+
+  const refreshContentsSearchSuggestions = useCallback(async () => {
+    if (!currentStory) {
+      setContentsSearchSuggestions([]);
+      return;
+    }
+
+    const suggestions = await listOfflineChapterSearchSuggestions(currentStory.id);
+    setContentsSearchSuggestions(suggestions);
+  }, [currentStory]);
+
+  const refreshReaderSearchSuggestions = useCallback(async () => {
+    if (!currentStory) {
+      setReaderSearchSuggestions([]);
+      return;
+    }
+
+    const suggestions = await listOfflineChapterSearchSuggestions(currentStory.id);
+    setReaderSearchSuggestions(suggestions);
+  }, [currentStory]);
+
   const contentsRows = useMemo<ContentsRow[]>(() => {
     const rawQuery = contentsSearchQuery.trim();
     const titleQuery = rawQuery.toLowerCase();
@@ -172,10 +218,12 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
       const titleMatch = `${chapter.chapterName} ${chapter.chapterUrl}`
         .toLowerCase()
         .includes(titleQuery);
-      const textMatch = chapterTextMatches[chapter.id] ?? null;
+      const textMatches = chapterTextMatches[chapter.id] ?? [];
 
-      if (textMatch) {
-        rows.push({ chapter, titleMatch, textMatch });
+      if (textMatches.length > 0) {
+        textMatches.forEach((textMatch) => {
+          rows.push({ chapter, titleMatch, textMatch });
+        });
         return rows;
       }
 
@@ -225,8 +273,16 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
       setContentsSearchQuery('');
       setContentsFilterKey('all');
       setChapterTextMatches({});
+      setContentsSearchFocused(false);
+      setContentsSearchSuggestions([]);
     }
   }, [contentsVisible]);
+
+  useEffect(() => {
+    if (contentsVisible && currentStory) {
+      void refreshContentsSearchSuggestions();
+    }
+  }, [contentsVisible, currentStory, refreshContentsSearchSuggestions]);
 
   useEffect(() => {
     const rawQuery = contentsSearchQuery.trim();
@@ -243,7 +299,25 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
     );
 
     void (async () => {
-      let pendingMatches: Record<number, OfflineChapterTextMatch> = {};
+      if (currentStory) {
+        const cachedSearch = await getOfflineChapterSearchCache(
+          currentStory.id,
+          rawQuery,
+          currentStorySearchSignature,
+        );
+        if (cancelled) {
+          return;
+        }
+
+        if (cachedSearch) {
+          setChapterTextMatches(groupOfflineChapterSearchCacheMatches(cachedSearch.matches));
+          await refreshContentsSearchSuggestions();
+          return;
+        }
+      }
+
+      let pendingMatches: OfflineChapterTextMatchesByChapter = {};
+      let collectedMatches: OfflineChapterTextMatchesByChapter = {};
 
       for (const chapter of chaptersToSearch) {
         const fullChapter = chapter.originalHtml
@@ -257,12 +331,13 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
           continue;
         }
 
-        const textMatch = findOfflineChapterTextMatch(fullChapter, rawQuery, dictionary);
-        if (!textMatch) {
+        const textMatches = findOfflineChapterTextMatches(fullChapter, rawQuery, dictionary);
+        if (textMatches.length === 0) {
           continue;
         }
 
-        pendingMatches[chapter.id] = textMatch;
+        pendingMatches[chapter.id] = textMatches;
+        collectedMatches[chapter.id] = textMatches;
         if (Object.keys(pendingMatches).length >= CHAPTER_SEARCH_BATCH_SIZE) {
           const nextMatches = pendingMatches;
           pendingMatches = {};
@@ -272,6 +347,18 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
 
       if (!cancelled && Object.keys(pendingMatches).length > 0) {
         setChapterTextMatches((currentMatches) => ({ ...currentMatches, ...pendingMatches }));
+      }
+
+      if (!cancelled && currentStory && contentsFilterKey === 'all') {
+        await saveOfflineChapterSearchCache({
+          storyId: currentStory.id,
+          rawQuery,
+          matches: flattenOfflineChapterTextMatchesByChapter(collectedMatches),
+          chapterSignature: currentStorySearchSignature,
+        });
+        if (!cancelled) {
+          await refreshContentsSearchSuggestions();
+        }
       }
     })();
 
@@ -284,11 +371,17 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
     contentsVisible,
     currentOfflineChapterId,
     currentStoryChapters,
+    currentStory,
+    currentStorySearchSignature,
     dictionary,
+    refreshContentsSearchSuggestions,
   ]);
 
   useEffect(() => {
     if (!readerSearchVisible) {
+      setReaderSearchFocused(false);
+      setReaderSearchSuggestions([]);
+      lastRecordedReaderSearchKeyRef.current = null;
       return;
     }
 
@@ -302,14 +395,26 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
 
     const handle = setTimeout(() => {
       requestReaderSearch(readerSearchQuery);
+      const query = readerSearchQuery.trim();
+      if (currentStory && query) {
+        const recordKey = `${currentStory.id}:${query.toLowerCase()}`;
+        if (lastRecordedReaderSearchKeyRef.current !== recordKey) {
+          lastRecordedReaderSearchKeyRef.current = recordKey;
+          void recordOfflineChapterSearchKeyword(currentStory.id, query).then(() => {
+            void refreshReaderSearchSuggestions();
+          });
+        }
+      }
     }, 220);
 
     return () => clearTimeout(handle);
   }, [
+    currentStory,
     readerSearchQuery,
     readerSearchResults.length,
     readerSearchStoreQuery,
     readerSearchVisible,
+    refreshReaderSearchSuggestions,
     requestReaderSearch,
   ]);
 
@@ -334,8 +439,11 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
       chapterId: result.chapterId,
       query: readerSearchStoreQuery,
       occurrenceIndex: result.occurrenceIndex,
+      immediate: result.chapterId === currentOfflineChapterId,
     });
-    loadOfflineChapter(result.chapterId);
+    if (result.chapterId !== currentOfflineChapterId) {
+      loadOfflineChapter(result.chapterId);
+    }
     return true;
   };
 
@@ -514,6 +622,13 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
                 <TextInput
                   value={contentsSearchQuery}
                   onChangeText={setContentsSearchQuery}
+                  onBlur={() => {
+                    setTimeout(() => setContentsSearchFocused(false), 120);
+                  }}
+                  onFocus={() => {
+                    setContentsSearchFocused(true);
+                    void refreshContentsSearchSuggestions();
+                  }}
                   placeholder="Search title, URL, or full text"
                   placeholderTextColor={theme.colors.inputPlaceholder}
                   style={styles.contentsSearchInput}
@@ -528,6 +643,26 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
                   </Pressable>
                 )}
               </View>
+              {contentsSearchFocused &&
+                !contentsSearchQuery.trim() &&
+                contentsSearchSuggestions.length > 0 && (
+                  <View style={styles.searchSuggestionRow}>
+                    {contentsSearchSuggestions.map((suggestion, index) => (
+                      <Pressable
+                        key={suggestion.id}
+                        onPressIn={() => {
+                          setContentsSearchQuery(suggestion.query);
+                          setContentsSearchFocused(false);
+                        }}
+                        style={styles.searchSuggestionPill}
+                      >
+                        <Text numberOfLines={1} style={styles.searchSuggestionText}>
+                          {index === 0 ? 'Recent' : 'Top'}: {suggestion.query}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
               <View style={styles.contentsSegmentWrap}>
                 <SegmentedControl
                   accessibilityLabel="Offline contents filters"
@@ -612,9 +747,12 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
                           chapterId: item.chapter.id,
                           query: contentsSearchQuery,
                           occurrenceIndex: item.textMatch.occurrenceIndex,
+                          immediate: item.chapter.id === currentOfflineChapterId,
                         });
                       }
-                      loadOfflineChapter(item.chapter.id);
+                      if (item.chapter.id !== currentOfflineChapterId) {
+                        loadOfflineChapter(item.chapter.id);
+                      }
                     }}
                     style={[styles.contentsRow, active && styles.contentsRowActive]}
                   >
@@ -690,6 +828,13 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
                   autoFocus
                   value={readerSearchQuery}
                   onChangeText={setReaderSearchQuery}
+                  onBlur={() => {
+                    setTimeout(() => setReaderSearchFocused(false), 120);
+                  }}
+                  onFocus={() => {
+                    setReaderSearchFocused(true);
+                    void refreshReaderSearchSuggestions();
+                  }}
                   placeholder="Search Chinese or Han-Viet"
                   placeholderTextColor={theme.colors.inputPlaceholder}
                   style={styles.contentsSearchInput}
@@ -704,6 +849,26 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
                   </Pressable>
                 )}
               </View>
+              {readerSearchFocused &&
+                !readerSearchQuery.trim() &&
+                readerSearchSuggestions.length > 0 && (
+                  <View style={styles.searchSuggestionRow}>
+                    {readerSearchSuggestions.map((suggestion, index) => (
+                      <Pressable
+                        key={suggestion.id}
+                        onPressIn={() => {
+                          setReaderSearchQuery(suggestion.query);
+                          setReaderSearchFocused(false);
+                        }}
+                        style={styles.searchSuggestionPill}
+                      >
+                        <Text numberOfLines={1} style={styles.searchSuggestionText}>
+                          {index === 0 ? 'Recent' : 'Top'}: {suggestion.query}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
               <Text style={styles.contentsSummary}>
                 {readerSearchBusy
                   ? 'Searching'
@@ -900,6 +1065,26 @@ const createStyles = (theme: Theme) =>
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: theme.colors.surfaceMuted,
+    },
+    searchSuggestionRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      marginTop: theme.spacing.sm,
+    },
+    searchSuggestionPill: {
+      maxWidth: '100%',
+      marginRight: theme.spacing.sm,
+      marginBottom: theme.spacing.xs,
+      borderRadius: theme.radius.full,
+      borderWidth: 1,
+      borderColor: theme.colors.borderMuted,
+      backgroundColor: theme.colors.surface,
+      paddingHorizontal: theme.spacing.sm,
+      paddingVertical: theme.spacing.xs,
+    },
+    searchSuggestionText: {
+      ...theme.typography.caption,
+      color: theme.colors.textAccent,
     },
     contentsSegmentWrap: {
       marginTop: theme.spacing.md,

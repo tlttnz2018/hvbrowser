@@ -59,16 +59,32 @@ interface EpubImportJobTable {
   updated_at: string;
 }
 
+interface OfflineChapterSearchCacheTable {
+  id: Generated<number>;
+  story_id: number;
+  raw_query: string;
+  normalized_query: string;
+  result_json: string;
+  result_count: number;
+  chapter_signature: string;
+  search_count: number;
+  last_searched_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
 interface OfflineDatabaseSchema {
   offline_stories: OfflineStoryTable;
   offline_chapters: OfflineChapterTable;
   epub_import_jobs: EpubImportJobTable;
+  offline_chapter_search_cache: OfflineChapterSearchCacheTable;
 }
 
 type OfflineStoryRow = Selectable<OfflineStoryTable>;
 type OfflineChapterRow = Selectable<OfflineChapterTable>;
 type OfflineChapterMetadataRow = Omit<OfflineChapterRow, 'original_html' | 'converted_hv_html'>;
 type EpubImportJobRow = Selectable<EpubImportJobTable>;
+type OfflineChapterSearchCacheRow = Selectable<OfflineChapterSearchCacheTable>;
 
 export interface OfflineStoryRecord {
   id: number;
@@ -184,6 +200,41 @@ export interface EpubImportJobRecord {
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface OfflineChapterSearchCacheMatch {
+  chapterId: number;
+  matchType: 'Chinese' | 'Han-Viet';
+  snippet: string;
+  occurrenceIndex: number;
+}
+
+export interface OfflineChapterSearchCacheRecord {
+  id: number;
+  storyId: number;
+  rawQuery: string;
+  normalizedQuery: string;
+  matches: OfflineChapterSearchCacheMatch[];
+  resultCount: number;
+  chapterSignature: string;
+  searchCount: number;
+  lastSearchedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OfflineChapterSearchSuggestion {
+  id: number;
+  query: string;
+  searchCount: number;
+  lastSearchedAt: string;
+}
+
+interface SaveOfflineChapterSearchCacheInput {
+  storyId: number;
+  rawQuery: string;
+  matches: OfflineChapterSearchCacheMatch[];
+  chapterSignature: string;
 }
 
 interface UpsertOfflineStoryInput {
@@ -351,6 +402,49 @@ const migrations: Record<string, AppMigration> = {
       await db.schema.alterTable('offline_chapters').addColumn('reader_is_hv', 'integer').execute();
     },
   },
+  '006_add_offline_chapter_search_cache': {
+    async up(db) {
+      await db.schema
+        .createTable('offline_chapter_search_cache')
+        .ifNotExists()
+        .addColumn('id', 'integer', (col) => col.primaryKey().autoIncrement())
+        .addColumn('story_id', 'integer', (col) =>
+          col.notNull().references('offline_stories.id').onDelete('cascade'),
+        )
+        .addColumn('raw_query', 'text', (col) => col.notNull())
+        .addColumn('normalized_query', 'text', (col) => col.notNull())
+        .addColumn('result_json', 'text', (col) => col.notNull())
+        .addColumn('result_count', 'integer', (col) => col.notNull().defaultTo(0))
+        .addColumn('chapter_signature', 'text', (col) => col.notNull())
+        .addColumn('search_count', 'integer', (col) => col.notNull().defaultTo(1))
+        .addColumn('last_searched_at', 'text', (col) => col.notNull())
+        .addColumn('created_at', 'text', (col) => col.notNull())
+        .addColumn('updated_at', 'text', (col) => col.notNull())
+        .execute();
+
+      await db.schema
+        .createIndex('idx_offline_chapter_search_cache_story_query')
+        .ifNotExists()
+        .on('offline_chapter_search_cache')
+        .columns(['story_id', 'normalized_query'])
+        .unique()
+        .execute();
+
+      await db.schema
+        .createIndex('idx_offline_chapter_search_cache_story_recent')
+        .ifNotExists()
+        .on('offline_chapter_search_cache')
+        .columns(['story_id', 'last_searched_at'])
+        .execute();
+
+      await db.schema
+        .createIndex('idx_offline_chapter_search_cache_story_count')
+        .ifNotExists()
+        .on('offline_chapter_search_cache')
+        .columns(['story_id', 'search_count'])
+        .execute();
+    },
+  },
 };
 
 const sqliteDatabase = createExpoSqliteDatabase(DATABASE_NAME);
@@ -363,6 +457,76 @@ let initializationPromise: Promise<void> | null = null;
 
 function normalizeOfflineChapterLookupUrl(chapterUrl: string) {
   return chapterUrl.replace(/#.*$/, '');
+}
+
+export function normalizeOfflineSearchCacheQuery(rawQuery: string) {
+  const query = rawQuery.trim().toLowerCase();
+  return /[\u3400-\u9fff\uf900-\ufaff]/.test(query)
+    ? query.replace(/\s+/g, '')
+    : query.replace(/\s+/g, ' ');
+}
+
+export function buildOfflineChapterSearchSignature(
+  chapters: Array<Pick<OfflineChapterRecord, 'id' | 'downloadStatus' | 'updatedAt'>>,
+) {
+  return chapters
+    .map((chapter) => `${chapter.id}:${chapter.downloadStatus}:${chapter.updatedAt}`)
+    .sort()
+    .join('|');
+}
+
+function parseOfflineChapterSearchMatches(resultJson: string): OfflineChapterSearchCacheMatch[] {
+  try {
+    const parsed = JSON.parse(resultJson) as unknown;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.flatMap((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return [];
+      }
+
+      const candidate = entry as Partial<OfflineChapterSearchCacheMatch>;
+      if (
+        typeof candidate.chapterId !== 'number' ||
+        (candidate.matchType !== 'Chinese' && candidate.matchType !== 'Han-Viet') ||
+        typeof candidate.snippet !== 'string' ||
+        typeof candidate.occurrenceIndex !== 'number'
+      ) {
+        return [];
+      }
+
+      return [
+        {
+          chapterId: candidate.chapterId,
+          matchType: candidate.matchType,
+          snippet: candidate.snippet,
+          occurrenceIndex: candidate.occurrenceIndex,
+        },
+      ];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function mapOfflineChapterSearchCacheRow(
+  row: OfflineChapterSearchCacheRow,
+): OfflineChapterSearchCacheRecord {
+  return {
+    id: row.id,
+    storyId: row.story_id,
+    rawQuery: row.raw_query,
+    normalizedQuery: row.normalized_query,
+    matches: parseOfflineChapterSearchMatches(row.result_json),
+    resultCount: row.result_count,
+    chapterSignature: row.chapter_signature,
+    searchCount: row.search_count,
+    lastSearchedAt: row.last_searched_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 function mapOfflineStoryRow(row: OfflineStoryRow): OfflineStoryRecord {
@@ -942,6 +1106,169 @@ export async function markOfflineChapterOpened(
     .execute();
 
   return getOfflineChapterById(id);
+}
+
+export async function getOfflineChapterSearchCache(
+  storyId: number,
+  rawQuery: string,
+  chapterSignature: string,
+): Promise<OfflineChapterSearchCacheRecord | null> {
+  await ensureOfflineDbReady();
+
+  const normalizedQuery = normalizeOfflineSearchCacheQuery(rawQuery);
+  if (!normalizedQuery) {
+    return null;
+  }
+
+  const row = await offlineDb
+    .selectFrom('offline_chapter_search_cache')
+    .selectAll()
+    .where('story_id', '=', storyId)
+    .where('normalized_query', '=', normalizedQuery)
+    .executeTakeFirst();
+
+  if (!row || row.chapter_signature !== chapterSignature) {
+    return null;
+  }
+
+  const now = new Date().toISOString();
+  await offlineDb
+    .updateTable('offline_chapter_search_cache')
+    .set({
+      search_count: sql<number>`search_count + 1`,
+      last_searched_at: now,
+      updated_at: now,
+    })
+    .where('id', '=', row.id)
+    .execute();
+
+  return mapOfflineChapterSearchCacheRow({
+    ...row,
+    search_count: row.search_count + 1,
+    last_searched_at: now,
+    updated_at: now,
+  });
+}
+
+export async function recordOfflineChapterSearchKeyword(
+  storyId: number,
+  rawQuery: string,
+): Promise<void> {
+  await ensureOfflineDbReady();
+
+  const normalizedQuery = normalizeOfflineSearchCacheQuery(rawQuery);
+  if (!normalizedQuery) {
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const query = rawQuery.trim();
+
+  await offlineDb
+    .insertInto('offline_chapter_search_cache')
+    .values({
+      story_id: storyId,
+      raw_query: query,
+      normalized_query: normalizedQuery,
+      result_json: '[]',
+      result_count: 0,
+      chapter_signature: '',
+      search_count: 1,
+      last_searched_at: now,
+      created_at: now,
+      updated_at: now,
+    })
+    .onConflict((oc) =>
+      oc.columns(['story_id', 'normalized_query']).doUpdateSet({
+        raw_query: query,
+        search_count: sql<number>`search_count + 1`,
+        last_searched_at: now,
+        updated_at: now,
+      }),
+    )
+    .execute();
+}
+
+export async function saveOfflineChapterSearchCache(
+  input: SaveOfflineChapterSearchCacheInput,
+): Promise<void> {
+  await ensureOfflineDbReady();
+
+  const normalizedQuery = normalizeOfflineSearchCacheQuery(input.rawQuery);
+  if (!normalizedQuery) {
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const rawQuery = input.rawQuery.trim();
+
+  await offlineDb
+    .insertInto('offline_chapter_search_cache')
+    .values({
+      story_id: input.storyId,
+      raw_query: rawQuery,
+      normalized_query: normalizedQuery,
+      result_json: JSON.stringify(input.matches),
+      result_count: input.matches.length,
+      chapter_signature: input.chapterSignature,
+      search_count: 1,
+      last_searched_at: now,
+      created_at: now,
+      updated_at: now,
+    })
+    .onConflict((oc) =>
+      oc.columns(['story_id', 'normalized_query']).doUpdateSet({
+        raw_query: rawQuery,
+        result_json: JSON.stringify(input.matches),
+        result_count: input.matches.length,
+        chapter_signature: input.chapterSignature,
+        search_count: sql<number>`search_count + 1`,
+        last_searched_at: now,
+        updated_at: now,
+      }),
+    )
+    .execute();
+}
+
+export async function listOfflineChapterSearchSuggestions(
+  storyId: number,
+): Promise<OfflineChapterSearchSuggestion[]> {
+  await ensureOfflineDbReady();
+
+  const recent = await offlineDb
+    .selectFrom('offline_chapter_search_cache')
+    .select(['id', 'raw_query', 'search_count', 'last_searched_at'])
+    .where('story_id', '=', storyId)
+    .orderBy('last_searched_at', 'desc')
+    .limit(1)
+    .execute();
+
+  const recentId = recent[0]?.id ?? null;
+  const popularQuery = offlineDb
+    .selectFrom('offline_chapter_search_cache')
+    .select(['id', 'raw_query', 'search_count', 'last_searched_at'])
+    .where('story_id', '=', storyId);
+
+  const popular =
+    recentId == null
+      ? await popularQuery
+          .orderBy('search_count', 'desc')
+          .orderBy('last_searched_at', 'desc')
+          .limit(4)
+          .execute()
+      : await popularQuery
+          .where('id', '!=', recentId)
+          .orderBy('search_count', 'desc')
+          .orderBy('last_searched_at', 'desc')
+          .limit(4)
+          .execute();
+
+  return [...recent, ...popular].map((row) => ({
+    id: row.id,
+    query: row.raw_query,
+    searchCount: row.search_count,
+    lastSearchedAt: row.last_searched_at,
+  }));
 }
 
 export async function attachHomePageToStory(

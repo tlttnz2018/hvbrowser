@@ -676,10 +676,20 @@ export default function IndexScreen() {
           }
           return targets;
         };
-        var collectIndexMatches = function(searchIndex, query, tokens, matchType, seen, results) {
+        var collectIndexMatches = function(
+          searchIndex,
+          query,
+          tokens,
+          matchType,
+          seen,
+          results,
+          maxResults
+        ) {
           if (!query) return;
+          var resultLimit =
+            typeof maxResults === 'number' && maxResults > 0 ? maxResults : 80;
           var startAt = 0;
-          while (results.length < 80) {
+          while (results.length < resultLimit) {
             var foundAt = searchIndex.text.indexOf(query, startAt);
             if (foundAt < 0) break;
             var tokenIndex = searchIndex.map[foundAt];
@@ -750,8 +760,25 @@ export default function IndexScreen() {
           var hvIndex = buildSearchIndex(tokens, 'hanViet', true);
           var results = [];
           var seen = {};
-          collectIndexMatches(chineseIndex, normalizeChineseSearch(query), tokens, 'chinese', seen, results);
-          collectIndexMatches(hvIndex, normalizeHvSearch(query), tokens, 'han-viet', seen, results);
+          var targetResultCount = Math.max(80, (Number(occurrenceIndex) || 0) + 1);
+          collectIndexMatches(
+            chineseIndex,
+            normalizeChineseSearch(query),
+            tokens,
+            'chinese',
+            seen,
+            results,
+            targetResultCount
+          );
+          collectIndexMatches(
+            hvIndex,
+            normalizeHvSearch(query),
+            tokens,
+            'han-viet',
+            seen,
+            results,
+            targetResultCount
+          );
           var activeIndex = Math.max(0, Math.min(results.length - 1, occurrenceIndex || 0));
           var result = results[activeIndex];
           if (result) {
@@ -1066,6 +1093,14 @@ export default function IndexScreen() {
     clearReaderSearchAutoJump(jumpRequest.id);
     return true;
   }, [clearReaderSearchAutoJump, currentOfflineChapterId, readerSearchAutoJumpRequest]);
+
+  useEffect(() => {
+    if (!readerSearchAutoJumpRequest?.immediate) {
+      return;
+    }
+
+    jumpToPendingReaderSearch();
+  }, [jumpToPendingReaderSearch, readerSearchAutoJumpRequest]);
 
   const loadingLabel =
     loadingStage === 'downloading'

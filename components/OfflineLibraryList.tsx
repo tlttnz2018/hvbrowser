@@ -16,17 +16,25 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
+  buildOfflineChapterSearchSignature,
   type EpubImportJobRecord,
   getOfflineChapterById,
+  getOfflineChapterSearchCache,
+  listOfflineChapterSearchSuggestions,
   type OfflineChapterRecord,
+  type OfflineChapterSearchSuggestion,
   type OfflineStoryRecord,
+  saveOfflineChapterSearchCache,
 } from '../db/offline';
 import { useAppStore } from '../stores/useAppStore';
 import { type ReaderSearchResult, useWebPageStore } from '../stores/useWebPageStore';
 import { absoluteFill, Theme, useTheme } from '../theme';
 import {
-  findOfflineChapterTextMatch,
+  findOfflineChapterTextMatches,
+  flattenOfflineChapterTextMatchesByChapter,
+  groupOfflineChapterSearchCacheMatches,
   type OfflineChapterTextMatch,
+  type OfflineChapterTextMatchesByChapter,
 } from '../utils/offline-chapter-search';
 import { getBottomInsetWithSystemBarPadding } from '../utils/safe-area';
 
@@ -105,6 +113,7 @@ const MODE_OPTIONS: Array<{ key: OfflineViewMode; label: string; description: st
   },
 ];
 const CHAPTER_SEARCH_BATCH_SIZE = 12;
+const EMPTY_CHAPTERS: OfflineChapterRecord[] = [];
 
 function statusColor(theme: Theme, status: OfflineChapterRecord['downloadStatus']) {
   if (status === 'downloaded') return theme.colors.accent;
@@ -139,39 +148,53 @@ function buildChapterSearchResults(rows: ChapterRow[]): ReaderSearchResult[] {
   }, []);
 }
 
-function buildChapterRow(
+function buildChapterRows(
   chapter: OfflineChapterRecord,
   storyName: string,
   rawQuery: string,
-  textMatch: OfflineChapterTextMatch | null,
-): ChapterRow | null {
+  textMatches: OfflineChapterTextMatch[],
+): ChapterRow[] {
   const query = rawQuery.trim();
 
   if (!query) {
-    return {
-      id: `chapter-${chapter.id}`,
-      kind: 'chapter',
-      chapter,
-      storyName,
-      textMatch: null,
-    };
+    return [
+      {
+        id: `chapter-${chapter.id}`,
+        kind: 'chapter',
+        chapter,
+        storyName,
+        textMatch: null,
+      },
+    ];
   }
 
   const metadataMatch = `${storyName} ${chapter.chapterName} ${chapter.chapterUrl}`
     .toLowerCase()
     .includes(query.toLowerCase());
 
-  if (!metadataMatch && !textMatch) {
-    return null;
+  if (textMatches.length > 0) {
+    return textMatches.map((textMatch) => ({
+      id: `chapter-${chapter.id}-match-${textMatch.occurrenceIndex}`,
+      kind: 'chapter',
+      chapter,
+      storyName,
+      textMatch,
+    }));
   }
 
-  return {
-    id: `chapter-${chapter.id}`,
-    kind: 'chapter',
-    chapter,
-    storyName,
-    textMatch,
-  };
+  if (!metadataMatch) {
+    return [];
+  }
+
+  return [
+    {
+      id: `chapter-${chapter.id}`,
+      kind: 'chapter',
+      chapter,
+      storyName,
+      textMatch: null,
+    },
+  ];
 }
 
 function SwipeToDeleteCard({
@@ -328,6 +351,7 @@ export default function OfflineLibraryList({
   const styles = createStyles(theme);
   const listContentStyle = [styles.content, { paddingBottom: bottomInset + theme.spacing.xl }];
   const dictionary = useAppStore((state) => state.dictionary);
+  const currentOfflineChapterId = useAppStore((state) => state.currentOfflineChapterId);
   const requestReaderSearchAutoJump = useWebPageStore((state) => state.requestReaderSearchAutoJump);
   const setReaderChapterSearchResults = useWebPageStore(
     (state) => state.setReaderChapterSearchResults,
@@ -342,13 +366,16 @@ export default function OfflineLibraryList({
   const [storyOverlayKind, setStoryOverlayKind] = useState<StoryOverlayKind>(null);
   const [activeStoryId, setActiveStoryId] = useState<number | null>(null);
   const [storySearchQuery, setStorySearchQuery] = useState('');
+  const [storySearchFocused, setStorySearchFocused] = useState(false);
+  const [storySearchSuggestions, setStorySearchSuggestions] = useState<
+    OfflineChapterSearchSuggestion[]
+  >([]);
   const [storyLastOnly, setStoryLastOnly] = useState(false);
-  const [chapterTextMatches, setChapterTextMatches] = useState<
-    Record<number, OfflineChapterTextMatch>
-  >({});
-  const [storyChapterTextMatches, setStoryChapterTextMatches] = useState<
-    Record<number, OfflineChapterTextMatch>
-  >({});
+  const [chapterTextMatches, setChapterTextMatches] = useState<OfflineChapterTextMatchesByChapter>(
+    {},
+  );
+  const [storyChapterTextMatches, setStoryChapterTextMatches] =
+    useState<OfflineChapterTextMatchesByChapter>({});
   const importJobsVisible = importJobs.filter(
     (job) =>
       job.status !== 'completed' || !!job.errorMessage || job.importedChapters < job.totalChapters,
@@ -370,6 +397,22 @@ export default function OfflineLibraryList({
   const normalizedQuery = rawSearchQuery.toLowerCase();
   const activeStory = stories.find((story) => story.id === activeStoryId) ?? null;
   const rawStorySearchQuery = storySearchQuery.trim();
+  const activeStoryAllChapters = activeStory
+    ? (chaptersByStory[activeStory.id] ?? EMPTY_CHAPTERS)
+    : EMPTY_CHAPTERS;
+  const activeStorySearchSignature = useMemo(
+    () => buildOfflineChapterSearchSignature(activeStoryAllChapters),
+    [activeStoryAllChapters],
+  );
+  const refreshStorySearchSuggestions = useCallback(async () => {
+    if (!activeStory) {
+      setStorySearchSuggestions([]);
+      return;
+    }
+
+    const suggestions = await listOfflineChapterSearchSuggestions(activeStory.id);
+    setStorySearchSuggestions(suggestions);
+  }, [activeStory]);
   const activeStoryLastOpenedChapterId = useMemo(() => {
     if (!activeStory) {
       return null;
@@ -445,17 +488,13 @@ export default function OfflineLibraryList({
           return;
         }
 
-        const row = buildChapterRow(
+        const chapterRowsForChapter = buildChapterRows(
           chapter,
           story.name,
           rawSearchQuery,
-          chapterTextMatches[chapter.id] ?? null,
+          chapterTextMatches[chapter.id] ?? [],
         );
-        if (!row) {
-          return;
-        }
-
-        rows.push(row);
+        rows.push(...chapterRowsForChapter);
       });
     });
 
@@ -474,15 +513,13 @@ export default function OfflineLibraryList({
           : matchesChapterFilter(chapter, filterKey),
       )
       .reduce<ChapterRow[]>((rows, chapter) => {
-        const row = buildChapterRow(
+        const chapterRowsForChapter = buildChapterRows(
           chapter,
           activeStory.name,
           rawStorySearchQuery,
-          storyChapterTextMatches[chapter.id] ?? null,
+          storyChapterTextMatches[chapter.id] ?? [],
         );
-        if (row) {
-          rows.push(row);
-        }
+        rows.push(...chapterRowsForChapter);
         return rows;
       }, []);
   }, [
@@ -511,7 +548,7 @@ export default function OfflineLibraryList({
     );
 
     void (async () => {
-      let pendingMatches: Record<number, OfflineChapterTextMatch> = {};
+      let pendingMatches: OfflineChapterTextMatchesByChapter = {};
 
       for (const chapter of chaptersToSearch) {
         const fullChapter = chapter.originalHtml
@@ -525,12 +562,12 @@ export default function OfflineLibraryList({
           continue;
         }
 
-        const textMatch = findOfflineChapterTextMatch(fullChapter, rawSearchQuery, dictionary);
-        if (!textMatch) {
+        const textMatches = findOfflineChapterTextMatches(fullChapter, rawSearchQuery, dictionary);
+        if (textMatches.length === 0) {
           continue;
         }
 
-        pendingMatches[chapter.id] = textMatch;
+        pendingMatches[chapter.id] = textMatches;
         if (Object.keys(pendingMatches).length >= CHAPTER_SEARCH_BATCH_SIZE) {
           const nextMatches = pendingMatches;
           pendingMatches = {};
@@ -549,6 +586,14 @@ export default function OfflineLibraryList({
   }, [chaptersByStory, dictionary, filterKey, rawSearchQuery, stories, viewMode]);
 
   useEffect(() => {
+    if (activeStory) {
+      void refreshStorySearchSuggestions();
+    } else {
+      setStorySearchSuggestions([]);
+    }
+  }, [activeStory, refreshStorySearchSuggestions]);
+
+  useEffect(() => {
     if (!activeStory || !rawStorySearchQuery) {
       setStoryChapterTextMatches({});
       return;
@@ -565,7 +610,23 @@ export default function OfflineLibraryList({
     );
 
     void (async () => {
-      let pendingMatches: Record<number, OfflineChapterTextMatch> = {};
+      const cachedSearch = await getOfflineChapterSearchCache(
+        activeStory.id,
+        rawStorySearchQuery,
+        activeStorySearchSignature,
+      );
+      if (cancelled) {
+        return;
+      }
+
+      if (cachedSearch) {
+        setStoryChapterTextMatches(groupOfflineChapterSearchCacheMatches(cachedSearch.matches));
+        await refreshStorySearchSuggestions();
+        return;
+      }
+
+      let pendingMatches: OfflineChapterTextMatchesByChapter = {};
+      let collectedMatches: OfflineChapterTextMatchesByChapter = {};
 
       for (const chapter of chaptersToSearch) {
         const fullChapter = chapter.originalHtml
@@ -579,12 +640,17 @@ export default function OfflineLibraryList({
           continue;
         }
 
-        const textMatch = findOfflineChapterTextMatch(fullChapter, rawStorySearchQuery, dictionary);
-        if (!textMatch) {
+        const textMatches = findOfflineChapterTextMatches(
+          fullChapter,
+          rawStorySearchQuery,
+          dictionary,
+        );
+        if (textMatches.length === 0) {
           continue;
         }
 
-        pendingMatches[chapter.id] = textMatch;
+        pendingMatches[chapter.id] = textMatches;
+        collectedMatches[chapter.id] = textMatches;
         if (Object.keys(pendingMatches).length >= CHAPTER_SEARCH_BATCH_SIZE) {
           const nextMatches = pendingMatches;
           pendingMatches = {};
@@ -601,6 +667,18 @@ export default function OfflineLibraryList({
           ...pendingMatches,
         }));
       }
+
+      if (!cancelled && !storyLastOnly && filterKey === 'all') {
+        await saveOfflineChapterSearchCache({
+          storyId: activeStory.id,
+          rawQuery: rawStorySearchQuery,
+          matches: flattenOfflineChapterTextMatchesByChapter(collectedMatches),
+          chapterSignature: activeStorySearchSignature,
+        });
+        if (!cancelled) {
+          await refreshStorySearchSuggestions();
+        }
+      }
     })();
 
     return () => {
@@ -609,9 +687,11 @@ export default function OfflineLibraryList({
   }, [
     activeStory,
     activeStoryLastOpenedChapterId,
+    activeStorySearchSignature,
     chaptersByStory,
     dictionary,
     filterKey,
+    refreshStorySearchSuggestions,
     rawStorySearchQuery,
     storyLastOnly,
   ]);
@@ -681,6 +761,8 @@ export default function OfflineLibraryList({
   const closeStoryBrowser = () => {
     setActiveStoryId(null);
     setStorySearchQuery('');
+    setStorySearchFocused(false);
+    setStorySearchSuggestions([]);
     setStoryOverlayKind(null);
     setStoryLastOnly(false);
   };
@@ -731,7 +813,11 @@ export default function OfflineLibraryList({
         </View>
       )}
       <Text style={styles.compactMeta}>
-        {viewMode === 'grouped' ? `${storyRows.length} stories` : `${chapterRows.length} chapters`}{' '}
+        {viewMode === 'grouped'
+          ? `${storyRows.length} stories`
+          : rawSearchQuery
+            ? `${chapterRows.length} results`
+            : `${chapterRows.length} chapters`}{' '}
         • {summaryLabel}
         {activeDownloadId ? ' • 1 active' : ''}
         {!!lastError ? ' • last run failed' : ''}
@@ -902,10 +988,13 @@ export default function OfflineLibraryList({
                 chapterId: chapter.id,
                 query,
                 occurrenceIndex: textMatch.occurrenceIndex,
+                immediate: chapter.id === currentOfflineChapterId,
               });
             }
             closeStoryBrowser();
-            onOpenChapter(chapter.id);
+            if (chapter.id !== currentOfflineChapterId) {
+              onOpenChapter(chapter.id);
+            }
           }}
           style={[styles.chapterRow, !canOpen && styles.chapterRowDisabled]}
         >
@@ -1116,7 +1205,10 @@ export default function OfflineLibraryList({
                 {activeStory?.name ?? ''}
               </Text>
               <Text style={styles.storyBrowserMeta}>
-                {activeStoryChapterRows.length} chapters •{' '}
+                {rawStorySearchQuery
+                  ? `${activeStoryChapterRows.length} results`
+                  : `${activeStoryChapterRows.length} chapters`}{' '}
+                •{' '}
                 {storyLastOnly
                   ? 'last opened only'
                   : filterKey === 'all'
@@ -1141,6 +1233,13 @@ export default function OfflineLibraryList({
                   setStoryLastOnly(false);
                 }
               }}
+              onBlur={() => {
+                setTimeout(() => setStorySearchFocused(false), 120);
+              }}
+              onFocus={() => {
+                setStorySearchFocused(true);
+                void refreshStorySearchSuggestions();
+              }}
               placeholder="Search chapters or full text"
               placeholderTextColor={theme.colors.inputPlaceholder}
               style={styles.storySearchInput}
@@ -1155,6 +1254,27 @@ export default function OfflineLibraryList({
               </Pressable>
             )}
           </View>
+          {storySearchFocused && !storySearchQuery.trim() && storySearchSuggestions.length > 0 && (
+            <View style={styles.searchSuggestionRow}>
+              {storySearchSuggestions.map((suggestion, index) => (
+                <Pressable
+                  key={suggestion.id}
+                  onPressIn={() => {
+                    setStorySearchQuery(suggestion.query);
+                    setStorySearchFocused(false);
+                    if (storyLastOnly) {
+                      setStoryLastOnly(false);
+                    }
+                  }}
+                  style={styles.searchSuggestionPill}
+                >
+                  <Text numberOfLines={1} style={styles.searchSuggestionText}>
+                    {index === 0 ? 'Recent' : 'Top'}: {suggestion.query}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
 
           <View style={styles.storyBrowserActions}>
             <Pressable
@@ -1357,6 +1477,27 @@ const createStyles = (theme: Theme) =>
       alignItems: 'center',
       justifyContent: 'center',
       backgroundColor: theme.colors.surfaceMuted,
+    },
+    searchSuggestionRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      marginTop: theme.spacing.sm,
+      marginBottom: theme.spacing.xs,
+    },
+    searchSuggestionPill: {
+      maxWidth: '100%',
+      marginRight: theme.spacing.sm,
+      marginBottom: theme.spacing.xs,
+      borderRadius: theme.radius.full,
+      borderWidth: 1,
+      borderColor: theme.colors.borderMuted,
+      backgroundColor: theme.colors.surface,
+      paddingHorizontal: theme.spacing.sm,
+      paddingVertical: theme.spacing.xs,
+    },
+    searchSuggestionText: {
+      ...theme.typography.caption,
+      color: theme.colors.textAccent,
     },
     toolbarButtonRow: {
       flexDirection: 'row',
