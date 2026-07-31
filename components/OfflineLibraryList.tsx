@@ -57,6 +57,7 @@ interface OfflineLibraryListProps {
   onOpenChapter: (chapterId: number) => void;
   onRemoveChapter: (chapterId: number) => Promise<void>;
   onRemoveStory: (storyId: number) => Promise<void>;
+  onMaintainDatabase: () => void;
 }
 
 interface SwipeToDeleteCardProps {
@@ -344,6 +345,7 @@ export default function OfflineLibraryList({
   onOpenChapter,
   onRemoveChapter,
   onRemoveStory,
+  onMaintainDatabase,
 }: OfflineLibraryListProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -862,6 +864,13 @@ export default function OfflineLibraryList({
           </Pressable>
           <Pressable onPress={() => setOverlayKind('jump')} style={styles.toolbarButton}>
             <Text style={styles.toolbarButtonLabel}>Jump</Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Clean up offline database"
+            onPress={onMaintainDatabase}
+            style={styles.toolbarButton}
+          >
+            <Text style={styles.toolbarButtonLabel}>DB</Text>
           </Pressable>
         </View>
       </View>

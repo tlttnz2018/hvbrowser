@@ -22,7 +22,11 @@ import {
   View,
 } from 'react-native';
 
-import { deleteOfflineChapter, deleteOfflineStory } from '../db/offline';
+import {
+  cleanupOfflineDatabaseRows,
+  deleteOfflineChapter,
+  deleteOfflineStory,
+} from '../db/offline';
 import { usePageLoader } from '../hooks/usePageLoader';
 import { useAppStore } from '../stores/useAppStore';
 import { absoluteFill, Theme, useTheme } from '../theme';
@@ -318,7 +322,7 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
     null,
   );
   const [offlineTransferBusy, setOfflineTransferBusy] = useState<
-    'import-backup' | 'export-backup' | null
+    'import-backup' | 'export-backup' | 'maintenance' | null
   >(null);
   const [menuAnchor, setMenuAnchor] = useState<{
     x: number;
@@ -551,6 +555,45 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
     } finally {
       setOfflineTransferBusy(null);
     }
+  };
+
+  const runOfflineDatabaseMaintenance = async () => {
+    if (offlineTransferBusy) return;
+
+    try {
+      setOfflineTransferBusy('maintenance');
+      const result = await cleanupOfflineDatabaseRows();
+      await refreshOfflineLibrary();
+
+      Alert.alert(
+        'Offline database cleaned',
+        `${result.orphanedChaptersDeleted} orphaned chapter${result.orphanedChaptersDeleted === 1 ? '' : 's'} removed, ${result.orphanedSearchCacheRowsDeleted} stale search cache row${result.orphanedSearchCacheRowsDeleted === 1 ? '' : 's'} removed, and ${result.orphanedImportJobStoryRefsCleared} import job reference${result.orphanedImportJobStoryRefsCleared === 1 ? '' : 's'} repaired. Vacuum completed.`,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unable to clean up the offline database.';
+      Alert.alert('Cleanup failed', message);
+    } finally {
+      setOfflineTransferBusy(null);
+    }
+  };
+
+  const handleOfflineDatabaseMaintenance = () => {
+    if (offlineTransferBusy) return;
+
+    Alert.alert(
+      'Clean offline database?',
+      'This removes orphaned offline rows, repairs dangling import references, and vacuums the SQLite database.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clean up',
+          onPress: () => {
+            void runOfflineDatabaseMaintenance();
+          },
+        },
+      ],
+    );
   };
 
   const heroHeader = (
@@ -805,6 +848,20 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
               <FontAwesome6 name="file-lines" size={12} color={theme.colors.textAccent} />
               <Text style={styles.transferButtonText}>Import TXT</Text>
             </Pressable>
+            <Pressable
+              accessibilityLabel="Vacuum offline database"
+              disabled={offlineTransferBusy !== null}
+              onPress={handleOfflineDatabaseMaintenance}
+              style={[
+                styles.transferButton,
+                offlineTransferBusy !== null && styles.transferButtonDisabled,
+              ]}
+            >
+              <FontAwesome6 name="broom" size={12} color={theme.colors.textAccent} />
+              <Text style={styles.transferButtonText}>
+                {offlineTransferBusy === 'maintenance' ? 'Cleaning' : 'Vacuum DB'}
+              </Text>
+            </Pressable>
           </View>
         </View>
         <Text style={styles.sectionCaption}>
@@ -887,6 +944,7 @@ export default function LibraryView({ onDismiss }: LibraryViewProps) {
               onDismiss?.();
               loadOfflineChapter(chapterId);
             }}
+            onMaintainDatabase={handleOfflineDatabaseMaintenance}
           />
         </View>
       )}

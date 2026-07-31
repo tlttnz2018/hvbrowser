@@ -1,4 +1,4 @@
-import { Generated, Kysely, Selectable, sql } from 'kysely';
+import { Generated, Kysely, QueryResult, Selectable, sql } from 'kysely';
 
 import { createExpoSqliteDatabase, ExpoSqliteDialect } from './expoSqliteDialect';
 import { AppMigration, runMigrations } from './runMigrations';
@@ -230,6 +230,12 @@ export interface OfflineChapterSearchSuggestion {
   lastSearchedAt: string;
 }
 
+export interface OfflineDatabaseMaintenanceResult {
+  orphanedChaptersDeleted: number;
+  orphanedSearchCacheRowsDeleted: number;
+  orphanedImportJobStoryRefsCleared: number;
+}
+
 interface SaveOfflineChapterSearchCacheInput {
   storyId: number;
   rawQuery: string;
@@ -445,6 +451,82 @@ const migrations: Record<string, AppMigration> = {
         .execute();
     },
   },
+  '007_cleanup_orphan_offline_rows': {
+    async up(db) {
+      await db.schema
+        .createIndex('idx_offline_stories_updated_created')
+        .ifNotExists()
+        .on('offline_stories')
+        .columns(['updated_at', 'created_at'])
+        .execute();
+
+      await db.schema
+        .createIndex('idx_offline_chapters_story_order_created')
+        .ifNotExists()
+        .on('offline_chapters')
+        .columns(['story_id', 'chapter_order', 'created_at'])
+        .execute();
+
+      await db.schema
+        .createIndex('idx_offline_chapters_order_created')
+        .ifNotExists()
+        .on('offline_chapters')
+        .columns(['chapter_order', 'created_at'])
+        .execute();
+
+      await db.schema
+        .createIndex('idx_offline_chapters_status_order_created')
+        .ifNotExists()
+        .on('offline_chapters')
+        .columns(['download_status', 'chapter_order', 'created_at'])
+        .execute();
+
+      await db.schema
+        .createIndex('idx_epub_import_jobs_created')
+        .ifNotExists()
+        .on('epub_import_jobs')
+        .column('created_at')
+        .execute();
+
+      await sql`
+        delete from offline_chapter_search_cache
+        where not exists (
+          select 1 from offline_stories
+          where offline_stories.id = offline_chapter_search_cache.story_id
+        )
+      `.execute(db);
+
+      await sql`
+        update epub_import_jobs
+        set story_id = null
+        where story_id is not null
+          and not exists (
+            select 1 from offline_stories
+            where offline_stories.id = epub_import_jobs.story_id
+          )
+      `.execute(db);
+
+      await sql`
+        delete from offline_chapters
+        where not exists (
+          select 1 from offline_stories
+          where offline_stories.id = offline_chapters.story_id
+        )
+      `.execute(db);
+
+      try {
+        await sql`vacuum`.execute(db);
+      } catch (error) {
+        console.warn('Offline database vacuum skipped:', error);
+      }
+
+      try {
+        await sql`pragma optimize`.execute(db);
+      } catch (error) {
+        console.warn('Offline database optimize skipped:', error);
+      }
+    },
+  },
 };
 
 const sqliteDatabase = createExpoSqliteDatabase(DATABASE_NAME);
@@ -605,14 +687,81 @@ function mapEpubImportJobRow(row: EpubImportJobRow): EpubImportJobRecord {
   };
 }
 
+function getAffectedRowCount(result: QueryResult<unknown>): number {
+  return Number(result.numAffectedRows ?? 0n);
+}
+
 export async function ensureOfflineDbReady() {
   if (!initializationPromise) {
     initializationPromise = (async () => {
+      await sqliteDatabase.execAsync('PRAGMA foreign_keys = ON;');
       await runMigrations(offlineDb, migrations, 'offline_kysely_migrations');
+      await optimizeOfflineDatabase();
     })();
   }
 
   return initializationPromise;
+}
+
+async function optimizeOfflineDatabase() {
+  try {
+    await sqliteDatabase.execAsync('PRAGMA optimize;');
+  } catch (error) {
+    console.warn('Offline database optimize skipped:', error);
+  }
+}
+
+async function vacuumOfflineDatabase() {
+  try {
+    await sqliteDatabase.execAsync('VACUUM;');
+  } catch (error) {
+    console.warn('Offline database vacuum skipped:', error);
+  }
+}
+
+export async function cleanupOfflineDatabaseRows(): Promise<OfflineDatabaseMaintenanceResult> {
+  await ensureOfflineDbReady();
+
+  const orphanedSearchCacheRowsDeleted = getAffectedRowCount(
+    await sql`
+      delete from offline_chapter_search_cache
+      where not exists (
+        select 1 from offline_stories
+        where offline_stories.id = offline_chapter_search_cache.story_id
+      )
+    `.execute(offlineDb),
+  );
+
+  const orphanedImportJobStoryRefsCleared = getAffectedRowCount(
+    await sql`
+      update epub_import_jobs
+      set story_id = null
+      where story_id is not null
+        and not exists (
+          select 1 from offline_stories
+          where offline_stories.id = epub_import_jobs.story_id
+        )
+    `.execute(offlineDb),
+  );
+
+  const orphanedChaptersDeleted = getAffectedRowCount(
+    await sql`
+      delete from offline_chapters
+      where not exists (
+        select 1 from offline_stories
+        where offline_stories.id = offline_chapters.story_id
+      )
+    `.execute(offlineDb),
+  );
+
+  await vacuumOfflineDatabase();
+  await optimizeOfflineDatabase();
+
+  return {
+    orphanedChaptersDeleted,
+    orphanedSearchCacheRowsDeleted,
+    orphanedImportJobStoryRefsCleared,
+  };
 }
 
 export async function getOfflineStoryById(id: number): Promise<OfflineStoryRecord | null> {
@@ -1409,11 +1558,26 @@ export async function deleteEpubImportJob(id: number): Promise<void> {
 export async function deleteOfflineStory(id: number): Promise<void> {
   await ensureOfflineDbReady();
 
-  await offlineDb.deleteFrom('offline_stories').where('id', '=', id).execute();
+  await offlineDb.transaction().execute(async (transaction) => {
+    await transaction
+      .deleteFrom('offline_chapter_search_cache')
+      .where('story_id', '=', id)
+      .execute();
+    await transaction
+      .updateTable('epub_import_jobs')
+      .set({ story_id: null })
+      .where('story_id', '=', id)
+      .execute();
+    await transaction.deleteFrom('offline_chapters').where('story_id', '=', id).execute();
+    await transaction.deleteFrom('offline_stories').where('id', '=', id).execute();
+  });
+
+  await optimizeOfflineDatabase();
 }
 
 export async function deleteOfflineChapter(id: number): Promise<void> {
   await ensureOfflineDbReady();
 
   await offlineDb.deleteFrom('offline_chapters').where('id', '=', id).execute();
+  await optimizeOfflineDatabase();
 }
