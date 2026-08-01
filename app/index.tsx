@@ -14,26 +14,33 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, WebViewMessageEvent, WebViewNavigation } from 'react-native-webview';
 
+import type { OfflineChapterRecord } from '../db/offline';
 import { usePageLoader } from '../hooks/usePageLoader';
 import { useAppStore } from '../stores/useAppStore';
 import { type ReaderSearchResult, useWebPageStore } from '../stores/useWebPageStore';
 import { absoluteFill, Theme, useTheme } from '../theme';
+import {
+  getDebugCount,
+  getDebugDuration,
+  getDebugLength,
+  logReaderDebug,
+} from '../utils/debug-log';
 import {
   DefinitionEntry,
   findBestDefinitionMatch,
   findDefinitionByWord,
 } from '../utils/definition-dictionary';
 import { extractBaseUrl } from '../utils/normalize-url';
+import {
+  getOfflineChapterPreload,
+  preloadOfflineChapterConversion,
+} from '../utils/offline-chapter-preload';
 import { normalizeChineseSearch, normalizeHanVietSearch } from '../utils/offline-chapter-search';
 import {
   scheduleReaderWorkletTask,
   warmReaderWorkletRuntime,
 } from '../utils/reader-worklet-runtime';
-import {
-  buildReaderHtmlSourceWorklet,
-  buildReaderSearchIndexesWorklet,
-  findReaderSegmentSearchMatchesWithIndexesWorklet,
-} from '../utils/reader-worklet-tasks';
+import { buildReaderHtmlSourceWorklet } from '../utils/reader-worklet-tasks';
 import { getBottomInsetWithSystemBarPadding } from '../utils/safe-area';
 import {
   buildPresentationHtmlWithChineseDefinitions,
@@ -91,12 +98,38 @@ interface DefinitionSheetState {
 const MAX_READER_SCROLL_CACHE_ENTRIES = 40;
 const MAX_SAVED_CHAPTER_CACHE_ENTRIES = 80;
 const MAX_READER_HTML_CACHE_ENTRIES = 6;
+const MAX_READER_HTML_PREWARM_ENTRIES = 1;
+const MAX_READER_HTML_PREWARM_BYTES = 3 * 1024 * 1024;
 const READER_HTML_WORKLET_TIMEOUT_MS = 8000;
-const READER_SEARCH_WORKLET_TIMEOUT_MS = 6000;
+const EMPTY_OFFLINE_CHAPTERS: OfflineChapterRecord[] = [];
 const EMPTY_READER_HTML_SOURCE: ReaderHtmlWithDefinitionSegments = {
   html: '',
   definitionSegments: {},
 };
+
+function getReaderHtmlSourceCacheKey(input: {
+  currentUrl: string;
+  htmlOrig: string;
+  htmlHV: string;
+  fullSite: boolean;
+  isCurrentEpub: boolean;
+  isHV: boolean;
+  fontSize: number;
+  readerBottomInset: number;
+  themeMode: Theme['mode'];
+}) {
+  return [
+    input.currentUrl,
+    getDebugLength(input.htmlOrig),
+    getDebugLength(input.htmlHV),
+    input.fullSite ? 'full' : 'reader',
+    input.isCurrentEpub ? 'epub' : 'web',
+    input.isHV ? 'hv' : 'zh',
+    input.fontSize,
+    input.readerBottomInset,
+    input.themeMode,
+  ].join(':');
+}
 
 function pruneStringKeyedRecord<T>(record: Record<string, T>, maxEntries: number) {
   const keys = Object.keys(record);
@@ -124,6 +157,25 @@ function pruneSavedChapterRecord<T extends { savedAt: number }>(
     .forEach(([key]) => {
       delete record[Number(key)];
     });
+}
+
+function getReaderHtmlPrewarmSizeBytes(result: ReaderHtmlWithDefinitionSegments) {
+  const segmentBytes = Object.values(result.definitionSegments).reduce(
+    (total, segment) =>
+      total +
+      (segment.text.length + segment.sourceText.length + segment.hanVietText.length) * 2 +
+      (segment.breakBeforeIndexes.length +
+        segment.sourceIndexes.length +
+        segment.hanVietIndexes.length) *
+        8,
+    0,
+  );
+
+  return result.html.length * 2 + segmentBytes;
+}
+
+function canCacheReaderHtmlPrewarm(result: ReaderHtmlWithDefinitionSegments) {
+  return getReaderHtmlPrewarmSizeBytes(result) <= MAX_READER_HTML_PREWARM_BYTES;
 }
 
 interface DefinitionSelectionState {
@@ -666,6 +718,9 @@ export default function IndexScreen() {
   const readerHtmlSourceCacheRef = useRef<
     Record<string, { html: string; definitionSegments: Record<number, ReaderDefinitionSegment> }>
   >({});
+  const readerHtmlPrewarmCacheRef = useRef<
+    Record<string, { html: string; definitionSegments: Record<number, ReaderDefinitionSegment> }>
+  >({});
   const readerHtmlSourceCacheScopeRef = useRef<{
     currentUrl: string;
     htmlOrig: string;
@@ -705,6 +760,10 @@ export default function IndexScreen() {
     s.currentOfflineChapterId ? s.getOfflineChapterByIdFromState(s.currentOfflineChapterId) : null,
   );
   const currentOfflineStory = useAppStore((s) => s.getCurrentOfflineStoryFromState());
+  const currentOfflineStoryChapters = useAppStore((s) => {
+    const story = s.getCurrentOfflineStoryFromState();
+    return story ? s.getOfflineChaptersForStoryFromState(story.id) : EMPTY_OFFLINE_CHAPTERS;
+  });
   const dictionary = useAppStore((s) => s.dictionary);
   const setLoading = useAppStore((s) => s.setLoading);
   const setLoadingStage = useAppStore((s) => s.setLoadingStage);
@@ -773,7 +832,14 @@ export default function IndexScreen() {
 
   const runCurrentReaderSearch = useCallback(
     (requestId: number, query: string, maxResults?: number) => {
+      const startedAt = Date.now();
       const segments = readerDefinitionSegmentsRef.current;
+      logReaderDebug('reader.search.direct.start', {
+        requestId,
+        query,
+        maxResults: maxResults ?? null,
+        segmentCount: getDebugCount(segments),
+      });
       const matches = findReaderSegmentSearchMatches({
         segments,
         indexes: getReaderSearchIndexes(segments),
@@ -782,132 +848,16 @@ export default function IndexScreen() {
         maxResults,
       });
       registerReaderSearchMatchesInWebView(matches.webMatches);
+      logReaderDebug('reader.search.direct.done', {
+        requestId,
+        resultCount: matches.results.length,
+        webMatchCount: matches.webMatches.length,
+        durationMs: getDebugDuration(startedAt),
+      });
       return matches.results;
     },
     [getReaderSearchIndexes, registerReaderSearchMatchesInWebView],
   );
-
-  const runCurrentReaderSearchInBackground = useCallback(
-    (
-      requestId: number,
-      query: string,
-      onComplete: (results: ReaderSearchResult[]) => void,
-      maxResults?: number,
-    ) => {
-      const segments = readerDefinitionSegmentsRef.current;
-      const cached = readerSearchIndexCacheRef.current;
-      let settled = false;
-      let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
-
-      const finish = (results: ReaderSearchResult[]) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        if (fallbackTimer) {
-          clearTimeout(fallbackTimer);
-        }
-        onComplete(results);
-      };
-
-      if (cached && cached.segments === segments && cached.dictionary === dictionary) {
-        const matches = findReaderSegmentSearchMatches({
-          segments,
-          indexes: cached.indexes,
-          rawQuery: query,
-          requestId,
-          maxResults,
-        });
-        registerReaderSearchMatchesInWebView(matches.webMatches);
-        finish(matches.results);
-        return;
-      }
-
-      const fallback = (message?: string) => {
-        if (settled) {
-          return;
-        }
-        if (__DEV__ && message) {
-          console.warn('Reader search Worklet fallback:', message);
-        }
-        const results = runCurrentReaderSearch(requestId, query, maxResults);
-        finish(results);
-      };
-
-      const scheduled = scheduleReaderWorkletTask(
-        findReaderSegmentSearchMatchesWithIndexesWorklet,
-        {
-          segments,
-          dictionary,
-          rawQuery: query,
-          requestId,
-          maxResults,
-        },
-        (matches) => {
-          if (settled) {
-            return;
-          }
-          registerReaderSearchMatchesInWebView(matches.webMatches);
-          finish(matches.results);
-        },
-        fallback,
-      );
-
-      if (!scheduled) {
-        fallback();
-        return;
-      }
-
-      fallbackTimer = setTimeout(
-        () => fallback(`timed out after ${READER_SEARCH_WORKLET_TIMEOUT_MS}ms`),
-        READER_SEARCH_WORKLET_TIMEOUT_MS,
-      );
-    },
-    [dictionary, registerReaderSearchMatchesInWebView, runCurrentReaderSearch],
-  );
-
-  useEffect(() => {
-    if (fullSite || !htmlSourceResult.html) {
-      return;
-    }
-
-    const segments = htmlSourceResult.definitionSegments;
-    if (Object.keys(segments).length === 0) {
-      return;
-    }
-
-    let cancelled = false;
-    const task = InteractionManager.runAfterInteractions(() => {
-      if (cancelled) {
-        return;
-      }
-
-      scheduleReaderWorkletTask(
-        buildReaderSearchIndexesWorklet,
-        { segments, dictionary },
-        (indexes) => {
-          if (cancelled || readerDefinitionSegmentsRef.current !== segments) {
-            return;
-          }
-          readerSearchIndexCacheRef.current = {
-            segments,
-            dictionary,
-            indexes,
-          };
-        },
-        (message) => {
-          if (__DEV__) {
-            console.warn('Reader search index Worklet fallback:', message);
-          }
-        },
-      );
-    });
-
-    return () => {
-      cancelled = true;
-      task.cancel();
-    };
-  }, [dictionary, fullSite, htmlSourceResult]);
 
   useEffect(() => {
     currentOfflineChapterScrollRatioRef.current = currentOfflineChapter?.readerScrollRatio ?? null;
@@ -1083,15 +1033,10 @@ export default function IndexScreen() {
       if (cancelled) {
         return;
       }
-      runCurrentReaderSearchInBackground(
-        readerSearchRequest.id,
-        readerSearchRequest.query,
-        (results) => {
-          if (!cancelled) {
-            setReaderSearchResults(readerSearchRequest.id, readerSearchRequest.query, results);
-          }
-        },
-      );
+      const results = runCurrentReaderSearch(readerSearchRequest.id, readerSearchRequest.query);
+      if (!cancelled) {
+        setReaderSearchResults(readerSearchRequest.id, readerSearchRequest.query, results);
+      }
     });
 
     return () => {
@@ -1103,7 +1048,7 @@ export default function IndexScreen() {
     hasReaderHtml,
     readerSearchRequest,
     registerReaderSearchMatchesInWebView,
-    runCurrentReaderSearchInBackground,
+    runCurrentReaderSearch,
     setReaderSearchResults,
   ]);
 
@@ -1339,6 +1284,19 @@ export default function IndexScreen() {
     (event: WebViewMessageEvent) => {
       try {
         const payload = JSON.parse(event.nativeEvent.data) as DefinitionLookupPayload;
+        if (
+          payload.type &&
+          payload.type !== 'scroll-position' &&
+          payload.type !== 'restore-complete'
+        ) {
+          logReaderDebug('webview.message', {
+            type: payload.type,
+            url: payload.url,
+            requestId: payload.requestId,
+            lookupId: payload.lookupId,
+            segmentId: payload.segmentId,
+          });
+        }
         if (payload.type === 'page-press') {
           setMoreMenu(false);
           return;
@@ -1456,6 +1414,7 @@ export default function IndexScreen() {
   const isCurrentEpub = currentOfflineStory?.sourceType === 'epub';
   const readerBottomInset = getBottomInsetWithSystemBarPadding(insets.bottom);
   useEffect(() => {
+    const prepareStartedAt = Date.now();
     let cancelled = false;
     const cacheScope = readerHtmlSourceCacheScopeRef.current;
     if (
@@ -1474,9 +1433,21 @@ export default function IndexScreen() {
         htmlHV,
       };
       setHtmlSourceResult(EMPTY_READER_HTML_SOURCE);
+      logReaderDebug('reader.prepare.scope-reset', {
+        currentUrl,
+        htmlOrigLength: getDebugLength(htmlOrig),
+        htmlHvLength: getDebugLength(htmlHV),
+      });
     }
 
     if (!activeHtml) {
+      logReaderDebug('reader.prepare.no-active-html', {
+        currentUrl,
+        fullSite,
+        isHV,
+        htmlOrigLength: getDebugLength(htmlOrig),
+        htmlHvLength: getDebugLength(htmlHV),
+      });
       setReaderHtmlPreparing(false);
       setHtmlSourceResult(EMPTY_READER_HTML_SOURCE);
       readerDefinitionSegmentsRef.current = {};
@@ -1484,19 +1455,46 @@ export default function IndexScreen() {
       return;
     }
 
-    const cacheKey = [
-      fullSite ? 'full' : 'reader',
-      isCurrentEpub ? 'epub' : 'web',
-      isHV ? 'hv' : 'zh',
+    const cacheKey = getReaderHtmlSourceCacheKey({
+      currentUrl,
+      htmlOrig,
+      htmlHV,
+      fullSite,
+      isCurrentEpub,
+      isHV,
       fontSize,
       readerBottomInset,
-      theme.mode,
-    ].join(':');
+      themeMode: theme.mode,
+    });
     const cachedHtmlSource = readerHtmlSourceCacheRef.current[cacheKey];
     if (cachedHtmlSource != null) {
+      logReaderDebug('reader.prepare.cache-hit', {
+        currentUrl,
+        cacheKey,
+        htmlLength: getDebugLength(cachedHtmlSource.html),
+        segmentCount: getDebugCount(cachedHtmlSource.definitionSegments),
+      });
       setReaderHtmlPreparing(false);
       setHtmlSourceResult(cachedHtmlSource);
       readerDefinitionSegmentsRef.current = cachedHtmlSource.definitionSegments;
+      readerSearchIndexCacheRef.current = null;
+      return;
+    }
+
+    const prewarmedHtmlSource = readerHtmlPrewarmCacheRef.current[cacheKey];
+    if (prewarmedHtmlSource != null) {
+      delete readerHtmlPrewarmCacheRef.current[cacheKey];
+      readerHtmlSourceCacheRef.current[cacheKey] = prewarmedHtmlSource;
+      pruneStringKeyedRecord(readerHtmlSourceCacheRef.current, MAX_READER_HTML_CACHE_ENTRIES);
+      logReaderDebug('reader.prepare.prewarm-hit', {
+        currentUrl,
+        cacheKey,
+        htmlLength: getDebugLength(prewarmedHtmlSource.html),
+        segmentCount: getDebugCount(prewarmedHtmlSource.definitionSegments),
+      });
+      setReaderHtmlPreparing(false);
+      setHtmlSourceResult(prewarmedHtmlSource);
+      readerDefinitionSegmentsRef.current = prewarmedHtmlSource.definitionSegments;
       readerSearchIndexCacheRef.current = null;
       return;
     }
@@ -1519,9 +1517,25 @@ export default function IndexScreen() {
       readerSearchIndexCacheRef.current = null;
       setHtmlSourceResult(nextResult);
       setReaderHtmlPreparing(false);
+      logReaderDebug('reader.prepare.apply', {
+        currentUrl,
+        cacheKey,
+        htmlLength: getDebugLength(nextResult.html),
+        segmentCount: getDebugCount(nextResult.definitionSegments),
+        durationMs: getDebugDuration(prepareStartedAt),
+      });
     };
 
     const prepareHtmlSourceOnRn = () => {
+      logReaderDebug('reader.prepare.rn.start', {
+        currentUrl,
+        fullSite,
+        isHV,
+        fontSize,
+        activeHtmlLength: getDebugLength(activeHtml),
+        htmlOrigLength: getDebugLength(htmlOrig),
+        dictionarySize: getDebugCount(dictionary),
+      });
       return fullSite
         ? {
             html: isCurrentEpub
@@ -1553,20 +1567,53 @@ export default function IndexScreen() {
       if (__DEV__ && message) {
         console.warn('Reader HTML Worklet fallback:', message);
       }
+      logReaderDebug('reader.prepare.worklet.fallback', {
+        currentUrl,
+        cacheKey,
+        message: message ?? 'schedule returned false',
+        durationMs: getDebugDuration(prepareStartedAt),
+      });
       applyHtmlSourceResult(prepareHtmlSourceOnRn());
     };
 
     if (fullSite) {
+      logReaderDebug('reader.prepare.fullSite', {
+        currentUrl,
+        activeHtmlLength: getDebugLength(activeHtml),
+        isCurrentEpub,
+      });
       applyHtmlSourceResult(prepareHtmlSourceOnRn());
       return;
     }
 
     setReaderHtmlPreparing(true);
+    setHtmlSourceResult(EMPTY_READER_HTML_SOURCE);
+    readerDefinitionSegmentsRef.current = {};
+    readerSearchIndexCacheRef.current = null;
+    logReaderDebug('reader.prepare.clear-stale', {
+      currentUrl,
+      cacheKey,
+    });
+    logReaderDebug('reader.prepare.worklet.wait-interactions', {
+      currentUrl,
+      cacheKey,
+      isHV,
+      htmlOrigLength: getDebugLength(htmlOrig),
+      activeHtmlLength: getDebugLength(activeHtml),
+      dictionarySize: getDebugCount(dictionary),
+    });
     const task = InteractionManager.runAfterInteractions(() => {
       if (cancelled) {
         return;
       }
 
+      logReaderDebug('reader.prepare.worklet.schedule', {
+        currentUrl,
+        cacheKey,
+        mode: isHV ? 'han-viet' : 'chinese',
+        htmlOrigLength: getDebugLength(htmlOrig),
+        dictionarySize: getDebugCount(dictionary),
+      });
       const scheduled = scheduleReaderWorkletTask(
         buildReaderHtmlSourceWorklet,
         {
@@ -1577,8 +1624,18 @@ export default function IndexScreen() {
           readerTheme: theme.reader,
           safeAreaBottom: readerBottomInset,
         },
-        applyHtmlSourceResult,
+        (nextResult) => {
+          logReaderDebug('reader.prepare.worklet.success', {
+            currentUrl,
+            cacheKey,
+            htmlLength: getDebugLength(nextResult.html),
+            segmentCount: getDebugCount(nextResult.definitionSegments),
+            durationMs: getDebugDuration(prepareStartedAt),
+          });
+          applyHtmlSourceResult(nextResult);
+        },
         fallbackToRnPrepare,
+        'reader-html-source',
       );
 
       if (!scheduled) {
@@ -1590,6 +1647,11 @@ export default function IndexScreen() {
         () => fallbackToRnPrepare(`timed out after ${READER_HTML_WORKLET_TIMEOUT_MS}ms`),
         READER_HTML_WORKLET_TIMEOUT_MS,
       );
+      logReaderDebug('reader.prepare.worklet.scheduled', {
+        currentUrl,
+        cacheKey,
+        timeoutMs: READER_HTML_WORKLET_TIMEOUT_MS,
+      });
     });
 
     return () => {
@@ -1608,6 +1670,205 @@ export default function IndexScreen() {
     htmlHV,
     htmlOrig,
     isCurrentEpub,
+    isHV,
+    readerBottomInset,
+    theme.mode,
+    theme.reader,
+  ]);
+
+  useEffect(() => {
+    if (
+      currentContentSource !== 'offline' ||
+      fullSite ||
+      !currentOfflineChapterId ||
+      !currentOfflineStory ||
+      !htmlOrig ||
+      !htmlHV ||
+      !htmlSourceResult.html
+    ) {
+      return;
+    }
+
+    const activeIndex = currentOfflineStoryChapters.findIndex(
+      (chapter) => chapter.id === currentOfflineChapterId,
+    );
+    const nextChapter =
+      activeIndex >= 0 && activeIndex < currentOfflineStoryChapters.length - 1
+        ? currentOfflineStoryChapters[activeIndex + 1]
+        : null;
+
+    if (!nextChapter || nextChapter.downloadStatus !== 'downloaded') {
+      return;
+    }
+
+    const prewarmStartedAt = Date.now();
+    let cancelled = false;
+    let settled = false;
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    const mode = isHV ? 'han-viet' : 'chinese';
+
+    const interactionTask = InteractionManager.runAfterInteractions(async () => {
+      const preload =
+        getOfflineChapterPreload(nextChapter.id, nextChapter.chapterUrl) ??
+        (await preloadOfflineChapterConversion(nextChapter.id, dictionary, 'shape-next'));
+
+      if (cancelled || !preload) {
+        return;
+      }
+
+      const nextHtmlOrig = '\ufeff' + preload.htmlOrig;
+      const nextHtmlHv = '\ufeff' + preload.htmlHv;
+      if (nextHtmlOrig.length * 2 > MAX_READER_HTML_PREWARM_BYTES) {
+        logReaderDebug('reader.prewarm.shape.skip-source-too-large', {
+          currentUrl,
+          nextChapterId: nextChapter.id,
+          htmlOrigLength: getDebugLength(nextHtmlOrig),
+          maxBytes: MAX_READER_HTML_PREWARM_BYTES,
+        });
+        return;
+      }
+      const cacheKey = getReaderHtmlSourceCacheKey({
+        currentUrl: preload.chapterUrl,
+        htmlOrig: nextHtmlOrig,
+        htmlHV: nextHtmlHv,
+        fullSite: false,
+        isCurrentEpub: currentOfflineStory.sourceType === 'epub',
+        isHV,
+        fontSize,
+        readerBottomInset,
+        themeMode: theme.mode,
+      });
+
+      if (
+        readerHtmlPrewarmCacheRef.current[cacheKey] ||
+        readerHtmlSourceCacheRef.current[cacheKey]
+      ) {
+        logReaderDebug('reader.prewarm.shape.cache-hit', {
+          currentUrl,
+          nextChapterId: nextChapter.id,
+          cacheKey,
+        });
+        return;
+      }
+
+      const applyPrewarmResult = (nextResult: ReaderHtmlWithDefinitionSegments) => {
+        if (cancelled || settled) {
+          return;
+        }
+        settled = true;
+        if (fallbackTimer) {
+          clearTimeout(fallbackTimer);
+          fallbackTimer = null;
+        }
+        if (!canCacheReaderHtmlPrewarm(nextResult)) {
+          logReaderDebug('reader.prewarm.shape.skip-too-large', {
+            currentUrl,
+            nextChapterId: nextChapter.id,
+            cacheKey,
+            htmlLength: getDebugLength(nextResult.html),
+            estimatedBytes: getReaderHtmlPrewarmSizeBytes(nextResult),
+            maxBytes: MAX_READER_HTML_PREWARM_BYTES,
+            durationMs: getDebugDuration(prewarmStartedAt),
+          });
+          return;
+        }
+        readerHtmlPrewarmCacheRef.current[cacheKey] = nextResult;
+        pruneStringKeyedRecord(readerHtmlPrewarmCacheRef.current, MAX_READER_HTML_PREWARM_ENTRIES);
+        logReaderDebug('reader.prewarm.shape.ready', {
+          currentUrl,
+          nextChapterId: nextChapter.id,
+          cacheKey,
+          htmlLength: getDebugLength(nextResult.html),
+          segmentCount: getDebugCount(nextResult.definitionSegments),
+          durationMs: getDebugDuration(prewarmStartedAt),
+        });
+      };
+
+      const prepareOnRn = () =>
+        isHV
+          ? buildPresentationHtmlWithHvDefinitions(
+              nextHtmlOrig,
+              fontSize,
+              dictionary,
+              theme.reader,
+              readerBottomInset,
+            )
+          : buildPresentationHtmlWithChineseDefinitions(
+              nextHtmlOrig,
+              fontSize,
+              dictionary,
+              theme.reader,
+              readerBottomInset,
+            );
+
+      const fallbackToRnPrepare = (message?: string) => {
+        if (cancelled) {
+          return;
+        }
+        logReaderDebug('reader.prewarm.shape.fallback', {
+          currentUrl,
+          nextChapterId: nextChapter.id,
+          cacheKey,
+          message: message ?? 'schedule returned false',
+          durationMs: getDebugDuration(prewarmStartedAt),
+        });
+        applyPrewarmResult(prepareOnRn());
+      };
+
+      logReaderDebug('reader.prewarm.shape.schedule', {
+        currentUrl,
+        nextChapterId: nextChapter.id,
+        nextChapterUrl: preload.chapterUrl,
+        cacheKey,
+        mode,
+        htmlOrigLength: getDebugLength(nextHtmlOrig),
+        dictionarySize: getDebugCount(dictionary),
+      });
+      const scheduled = scheduleReaderWorkletTask(
+        buildReaderHtmlSourceWorklet,
+        {
+          mode,
+          htmlOrig: nextHtmlOrig,
+          fontSize,
+          dictionary,
+          readerTheme: theme.reader,
+          safeAreaBottom: readerBottomInset,
+        },
+        applyPrewarmResult,
+        fallbackToRnPrepare,
+        'reader-html-source-prewarm',
+      );
+
+      if (!scheduled) {
+        fallbackToRnPrepare();
+        return;
+      }
+
+      fallbackTimer = setTimeout(
+        () => fallbackToRnPrepare(`timed out after ${READER_HTML_WORKLET_TIMEOUT_MS}ms`),
+        READER_HTML_WORKLET_TIMEOUT_MS,
+      );
+    });
+
+    return () => {
+      cancelled = true;
+      if (fallbackTimer) {
+        clearTimeout(fallbackTimer);
+      }
+      interactionTask.cancel();
+    };
+  }, [
+    currentContentSource,
+    currentOfflineChapterId,
+    currentOfflineStory,
+    currentOfflineStoryChapters,
+    currentUrl,
+    dictionary,
+    fontSize,
+    fullSite,
+    htmlHV,
+    htmlOrig,
+    htmlSourceResult.html,
     isHV,
     readerBottomInset,
     theme.mode,
@@ -1745,14 +2006,32 @@ export default function IndexScreen() {
   const showLoadingOverlay = loading || readerHtmlPreparing;
 
   const handleLoadStart = useCallback(() => {
+    logReaderDebug('webview.loadStart', {
+      currentUrl,
+      loading,
+      loadingStage,
+      fullSite,
+      isHV,
+      htmlSourceLength: getDebugLength(htmlSource),
+    });
     if (!loading) {
       return;
     }
 
     setLoadingStage('rendering');
-  }, [loading, setLoadingStage]);
+  }, [currentUrl, fullSite, htmlSource, isHV, loading, loadingStage, setLoadingStage]);
 
   const handleLoadEnd = useCallback(() => {
+    logReaderDebug('webview.loadEnd', {
+      currentUrl,
+      loading,
+      loadingStage,
+      fullSite,
+      isHV,
+      htmlSourceLength: getDebugLength(htmlSource),
+      pendingAnchor: pendingContentAnchor,
+      pendingSearch: !!readerSearchAutoJumpRequest,
+    });
     if (readerSearchWebMatchesRef.current.length > 0) {
       registerReaderSearchMatchesInWebView(readerSearchWebMatchesRef.current);
     }
@@ -1767,9 +2046,16 @@ export default function IndexScreen() {
   }, [
     jumpToPendingReaderSearch,
     pendingContentAnchor,
+    currentUrl,
+    fullSite,
+    htmlSource,
+    isHV,
     registerReaderSearchMatchesInWebView,
     restorePendingAnchor,
     restoreReaderScrollPosition,
+    readerSearchAutoJumpRequest,
+    loading,
+    loadingStage,
     setLoading,
   ]);
 

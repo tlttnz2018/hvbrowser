@@ -18,6 +18,7 @@ Read these only if needed:
 
 - [`utils/downloader.ts`](/Users/saigon/dev/hvbrowser/utils/downloader.ts) for fetch, charset, and HV conversion timing
 - [`utils/cleanup.ts`](/Users/saigon/dev/hvbrowser/utils/cleanup.ts) for cleanup cost or output issues
+- [`utils/offline-chapter-preload.ts`](/Users/saigon/dev/hvbrowser/utils/offline-chapter-preload.ts) for bounded next-offline-chapter conversion/base-href preloading
 - [`utils/webview-html.ts`](/Users/saigon/dev/hvbrowser/utils/webview-html.ts) for injected base href and reader HTML shaping
 - [`utils/definition-dictionary.ts`](/Users/saigon/dev/hvbrowser/utils/definition-dictionary.ts) for dictionary-sheet lookup, generated word-index matching, and exact SQLite definition reads
 - [`stores/useWebPageStore.ts`](/Users/saigon/dev/hvbrowser/stores/useWebPageStore.ts) for transient reader mode state
@@ -45,13 +46,15 @@ Read these only if needed:
 - `currentContentSource === 'offline'` changes navigation behavior; preserve that branch logic.
 - Reader mode and full-site mode share the same `WebView` surface but differ in HTML shaping and behavior.
 - HV/Chinese switching should stay single-WebView for now. Do not use dual mounted WebViews or hidden inactive-mode prewarming; that approach caused worse freezes because it prepared another full chapter and mounted another native WebView while the user was reading.
+- Next-offline-chapter prework may run after the active chapter opens, but only for the next known downloaded chapter, only with bounded in-memory caches, and never by mounting another WebView or prewarming the inactive HV/Chinese mode.
 - `epub://...` and `txt://...` URLs are synthetic offline chapter identities. Bookmarks, back navigation, and link taps must resolve them through offline chapter lookup before any remote `loadPage` path continues.
 - EPUB/TXT chapters may start with only `originalHtml`; Han-Viet HTML can be generated lazily on first open.
 - Offline chapter resume state comes from persisted `lastOpenedAt`, not from whichever chapter the UI last highlighted in memory.
 - Reader scroll position is memory-first. WebView scroll messages update an in-memory URL-keyed ratio cache for active-session restore and HV/Chinese toggle alignment; they must not write to SQLite directly or through debounce/timer loops.
 - Persist `readerScrollRatio` only when switching from one offline story/book to another, using the previous book's active chapter and last in-memory ratio. Same-book Prev/Next should avoid scroll-position DB writes.
 - The shaped reader HTML may be cached for the current requested mode. Build reader-mode WebView HTML in an after-interactions effect instead of during render, and avoid precomputing the inactive HV/Chinese mode on the foreground JS thread.
-- Reader Worklets route pure reader shaping/search/conversion work through a guarded native-only `hvbrowser-reader` runtime when available. Web, failed native initialization, and task timeouts keep the existing RN-thread fallback.
+- Reader Worklets route pure reader shaping/conversion work through a guarded native-only `hvbrowser-reader` runtime when available. On Expo SDK 54, rely on `babel-preset-expo` for plugin setup. Web, failed native initialization, and task timeouts keep the existing RN-thread fallback. Do not run current-reader search through Worklets on SDK54; index prewarm and cold manual search both crashed native.
+- Use `.agents/skills/worklet-migration/SKILL.md` before moving additional reader features to Worklets.
 - Offline library state is metadata-only for chapters. Full `originalHtml` / `convertedHvHtml` should not live in Zustand except as the active `htmlOrig` / `htmlHV` reader pair.
 - Reader annotation must keep DOM payload small: `.hv-word` spans should carry only segment id/index metadata for tap/highlight targeting. Full Chinese context/sentence construction, current-reader search matching, word-range selection, pinyin/HV/meaning, and dictionary matching belong to React Native / SQLite lookup.
 - Current-reader search results live in `useWebPageStore` as transient result metadata. Search matching is computed in React Native from the reader segment registry; injected JS should only register RN-provided ranges, highlight spans, and scroll to targets.

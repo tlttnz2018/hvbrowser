@@ -203,23 +203,24 @@ Why:
 Status: Accepted
 
 - `react-native-worklets` is present in dependencies.
-- `babel.config.js` enables `react-native-worklets/plugin` so functions marked with `'worklet';` can be serialized.
+- Expo SDK 54 uses `babel-preset-expo`; do not add `react-native-worklets/plugin` manually because the preset handles Worklets/Reanimated setup for this SDK.
 - `metro.config.js` enables `inlineRequires` because Expo apps can otherwise hit Worklets initialization issues.
 - `utils/reader-worklet-runtime.ts` creates a guarded native-only reader runtime named `hvbrowser-reader`, warms it after initial interactions, and exposes a single scheduler with RN fallback behavior.
+- The scheduler captures RN callbacks in the scheduled worklet closure and passes only the data payload through `runOnRuntime`; passing callbacks as runtime arguments broke conversion callbacks on SDK54's `react-native-worklets@0.5.1`.
 - Web and failed native initialization keep the React Native-thread fallback because Worklets worker runtimes are not supported on web and can fail if the native app has not been rebuilt.
-- Pure worker-safe code lives outside React components:
-  - `utils/reader-search.ts` owns current-reader search index construction and matching.
+- Pure heavy-loop code lives outside React components:
+  - `utils/reader-search.ts` owns current-reader search index construction and matching, but current-reader search runs on RN on SDK54.
   - `utils/han-viet-converter.ts` owns the pure character-to-Han-Viet loop.
   - `utils/reader-worklet-tasks.ts` owns Worklet task wrappers and marshals results back with `scheduleOnRN`.
 - Worker-routed tasks:
   - reader HTML shaping and dictionary segment registry construction
-  - current-reader search index prewarming
-  - cold manual current-reader search matching
   - first-time Han-Viet conversion after download/cleanup
+  - bounded next-offline-chapter conversion and current-mode reader HTML shaping prewarm after the active chapter opens
 - Fallbacks:
   - reader HTML shaping falls back to the existing RN builder if scheduling fails or times out.
-  - manual search falls back to the existing RN search if scheduling fails or times out.
   - Han-Viet conversion falls back to the pure RN conversion loop if scheduling fails or times out.
+- Use `.agents/skills/worklet-migration/SKILL.md` before moving more reader work to Worklets.
+- Do not run current-reader search through Worklets on SDK54. Returning full `map` arrays from `reader-search-index` crashed native before callbacks, and cold manual search crashed when started from the local search UI.
 - Still on RN/native paths:
   - download and charset decoding
   - HTML cleanup
@@ -232,6 +233,24 @@ Why:
 - A worker can reduce RN JS thread stalls only if the data passed across runtime boundaries is compact enough.
 - Worklet code cannot directly own WebView, SQLite, or React state side effects; those must stay in RN and receive compact worker results.
 - Timeout fallbacks prevent reader prepare/search/conversion from getting stuck if a native Worklet runtime rejects a payload or a workletized import.
+- Search-index maps are too large to treat as a safe cross-runtime payload; worker search should return only compact search results and WebView highlight ranges.
+- Current-reader search should remain RN-owned after interactions until a newer Worklets runtime can be validated with large payloads.
+
+### 2026-08 Next offline chapter prework is bounded and cache-only
+
+Status: Accepted
+
+- After an offline chapter opens, the loader may schedule conversion for the next known downloaded chapter through the existing Han-Viet conversion Worklet path.
+- The preloader persists generated `convertedHvHtml` back to SQLite, but keeps full `originalHtml` / `convertedHvHtml` out of Zustand.
+- `app/index.tsx` may also prewarm shaped reader HTML for the next chapter, but only for the currently active HV/Chinese mode, font size, safe-area inset, and theme.
+- Prewarmed shaped HTML lives in a one-entry transient cache keyed by URL, input lengths, mode, font, inset, and theme. Both conversion and shaping preloads enforce byte budgets; oversized chapters are converted lazily and shaped only when opened. A normal reader prepare fallback still runs if the prewarm is missing, stale, or timed out.
+- This is not inactive-mode prewarming and does not mount a second WebView.
+
+Why:
+
+- Same-book Next is a predictable user action and can reuse known offline chapter order.
+- Preconverting the next chapter reduces the visible conversion delay without making scroll or mode switching write more data to SQLite.
+- Keeping prewarm output bounded avoids returning to the earlier performance problem where hidden work competed with current reader taps.
 
 ### 2026-05 All `epub://` opens must resolve through offline chapter lookup
 

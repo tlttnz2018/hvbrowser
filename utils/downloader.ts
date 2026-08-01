@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 
 import { cleanupHtml } from './cleanup';
+import { getDebugDuration, getDebugLength, logReaderDebug } from './debug-log';
 import { convertTextToHanViet } from './han-viet-converter';
 import { convertHtmlPageToHVInBackground } from './han-viet-worklet';
 
@@ -121,48 +122,107 @@ function resolveEncoding(byteArray: Uint8Array, contentType: string | null): str
 }
 
 export async function downloadHtmlPage(url: string): Promise<string> {
-  // eslint-disable-next-line no-console
-  console.log('Download from: ' + url);
+  const startedAt = Date.now();
+  logReaderDebug('download.start', { url, platform: Platform.OS });
 
   const response = await fetch(url);
+  const contentType = response.headers.get('content-type');
+  logReaderDebug('download.response', {
+    url,
+    ok: response.ok,
+    status: response.status,
+    statusText: response.statusText,
+    contentType,
+    durationMs: getDebugDuration(startedAt),
+  });
   if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
 
   const arrayBuffer = await response.arrayBuffer();
-  if (!arrayBuffer || arrayBuffer.byteLength === 0) return '';
+  if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+    logReaderDebug('download.empty-body', {
+      url,
+      durationMs: getDebugDuration(startedAt),
+    });
+    return '';
+  }
 
   const byteArray = new Uint8Array(arrayBuffer);
+  logReaderDebug('download.bytes', {
+    url,
+    bytes: byteArray.byteLength,
+    durationMs: getDebugDuration(startedAt),
+  });
 
   // On web: use the browser's TextDecoder — it accepts any IANA charset name
   if (Platform.OS === 'web') {
-    const contentType = response.headers.get('content-type');
     const charset = contentType?.match(/charset\s*=\s*([^\s;,"']+)/i)?.[1] ?? 'utf-8';
     try {
-      return new TextDecoder(charset).decode(byteArray);
+      const decoded = new TextDecoder(charset).decode(byteArray);
+      logReaderDebug('download.decode.web', {
+        url,
+        charset,
+        decodedLength: getDebugLength(decoded),
+        durationMs: getDebugDuration(startedAt),
+      });
+      return decoded;
     } catch {
-      return new TextDecoder('utf-8').decode(byteArray);
+      const decoded = new TextDecoder('utf-8').decode(byteArray);
+      logReaderDebug('download.decode.web-fallback-utf8', {
+        url,
+        requestedCharset: charset,
+        decodedLength: getDebugLength(decoded),
+        durationMs: getDebugDuration(startedAt),
+      });
+      return decoded;
     }
   }
 
   // On native: full encoding resolution pipeline
-  const contentType = response.headers.get('content-type');
   const encoding = resolveEncoding(byteArray, contentType);
+  logReaderDebug('download.encoding.native', { url, encoding, contentType });
 
   if (encoding === 'utf-8') {
     try {
-      return new TextDecoder('utf-8').decode(byteArray);
+      const decoded = new TextDecoder('utf-8').decode(byteArray);
+      logReaderDebug('download.decode.native-utf8', {
+        url,
+        decodedLength: getDebugLength(decoded),
+        durationMs: getDebugDuration(startedAt),
+      });
+      return decoded;
     } catch {
-      return utf8ArrayToStr(byteArray);
+      const decoded = utf8ArrayToStr(byteArray);
+      logReaderDebug('download.decode.native-utf8-polyfill', {
+        url,
+        decodedLength: getDebugLength(decoded),
+        durationMs: getDebugDuration(startedAt),
+      });
+      return decoded;
     }
   }
 
-  return icovDecode!(byteArray, encoding);
+  const decoded = icovDecode!(byteArray, encoding);
+  logReaderDebug('download.decode.native-iconv', {
+    url,
+    encoding,
+    decodedLength: getDebugLength(decoded),
+    durationMs: getDebugDuration(startedAt),
+  });
+  return decoded;
 }
 
 export async function convertHtmlPageToHV(
   htmlContent: string,
   dictionary: Record<string, string>,
 ): Promise<string> {
-  return convertTextToHanViet(htmlContent, dictionary);
+  const startedAt = Date.now();
+  logReaderDebug('conversion.direct.start', { htmlLength: getDebugLength(htmlContent) });
+  const converted = convertTextToHanViet(htmlContent, dictionary);
+  logReaderDebug('conversion.direct.done', {
+    outputLength: getDebugLength(converted),
+    durationMs: getDebugDuration(startedAt),
+  });
+  return converted;
 }
 
 export function extractHtmlTitle(html: string): string {
@@ -184,10 +244,24 @@ export async function downloadOfflineChapterPayload(
   url: string,
   dictionary: Record<string, string>,
 ): Promise<{ originalHtml: string; convertedHvHtml: string; title: string }> {
+  const startedAt = Date.now();
+  logReaderDebug('downloadOfflineChapterPayload.start', { url });
   const originalHtml = await downloadHtmlPage(url);
   const cleanedHtml = (await cleanupHtml(originalHtml)) || originalHtml;
+  logReaderDebug('downloadOfflineChapterPayload.cleanup.done', {
+    url,
+    originalLength: getDebugLength(originalHtml),
+    cleanedLength: getDebugLength(cleanedHtml),
+    durationMs: getDebugDuration(startedAt),
+  });
   const convertedHvHtml = await convertHtmlPageToHVInBackground(cleanedHtml, dictionary);
   const title = extractHtmlTitle(convertedHvHtml) || extractHtmlTitle(originalHtml) || url;
+  logReaderDebug('downloadOfflineChapterPayload.done', {
+    url,
+    title,
+    convertedLength: getDebugLength(convertedHvHtml),
+    durationMs: getDebugDuration(startedAt),
+  });
 
   return {
     originalHtml,

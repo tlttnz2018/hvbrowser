@@ -6,6 +6,8 @@ import {
   type WorkletRuntime,
 } from 'react-native-worklets';
 
+import { logReaderDebug } from './debug-log';
+
 let readerRuntime: WorkletRuntime | null | undefined;
 let hasLoggedRuntimeError = false;
 
@@ -15,25 +17,33 @@ function warnReaderWorkletRuntime(error: unknown) {
   }
 
   hasLoggedRuntimeError = true;
+  logReaderDebug('worklet.runtime.unavailable', {
+    platform: Platform.OS,
+    error: error instanceof Error ? error.message : String(error),
+  });
   console.warn('Reader Worklet runtime is unavailable; using React Native thread fallback.', error);
 }
 
 export function getReaderWorkletRuntime(): WorkletRuntime | null {
   if (Platform.OS === 'web') {
+    logReaderDebug('worklet.runtime.skip-web');
     return null;
   }
 
   if (readerRuntime !== undefined) {
+    logReaderDebug('worklet.runtime.cached', { available: !!readerRuntime });
     return readerRuntime;
   }
 
   try {
+    logReaderDebug('worklet.runtime.create.start', { platform: Platform.OS });
     readerRuntime = createWorkletRuntime({
       name: 'hvbrowser-reader',
       initializer: () => {
         'worklet';
       },
     });
+    logReaderDebug('worklet.runtime.create.success');
   } catch (error) {
     readerRuntime = null;
     warnReaderWorkletRuntime(error);
@@ -46,13 +56,16 @@ export function warmReaderWorkletRuntime(): boolean {
   const runtime = getReaderWorkletRuntime();
 
   if (!runtime) {
+    logReaderDebug('worklet.runtime.warm.skip-no-runtime');
     return false;
   }
 
   try {
+    logReaderDebug('worklet.runtime.warm.dispatch');
     runOnRuntime(runtime, () => {
       'worklet';
     })();
+    logReaderDebug('worklet.runtime.warm.dispatched');
     return true;
   } catch (error) {
     readerRuntime = null;
@@ -70,23 +83,32 @@ export function scheduleReaderWorkletTask<Input, Result>(
   input: Input,
   onSuccess: (result: Result) => void,
   onError: (message: string) => void,
+  label = task.name || 'anonymous',
 ): boolean {
   const runtime = getReaderWorkletRuntime();
 
   if (!runtime) {
+    logReaderDebug('worklet.task.skip-no-runtime', { label });
     return false;
   }
 
   try {
-    runOnRuntime(
-      runtime,
-      task as WorkletFunction<[Input, (result: Result) => void, (message: string) => void], void>,
-    )(input, onSuccess, onError);
+    logReaderDebug('worklet.task.dispatch', { label });
+    const scheduledTask = (workletInput: Input) => {
+      'worklet';
+      task(workletInput, onSuccess, onError);
+    };
+
+    runOnRuntime(runtime, scheduledTask as WorkletFunction<[Input], void>)(input);
+    logReaderDebug('worklet.task.dispatched', { label });
     return true;
   } catch (error) {
     readerRuntime = null;
     warnReaderWorkletRuntime(error);
-    onError(error instanceof Error ? error.message : String(error));
+    logReaderDebug('worklet.task.dispatch-error', {
+      label,
+      error: error instanceof Error ? error.message : String(error),
+    });
     return false;
   }
 }
