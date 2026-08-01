@@ -20,10 +20,13 @@
 - Backups store chapter `originalHtml` only; restored chapters regenerate `convertedHvHtml` lazily through the reader path.
 - Remote chapters restored from queued/downloading backup entries come back as `queued`, while existing downloaded content should not be downgraded by import.
 - Offline library hydration keeps chapter rows metadata-only in Zustand; full `originalHtml` / `convertedHvHtml` should be fetched by id/url only for active reads, backups, or explicit text search.
-- Reader search has two scopes: current-reader search runs inside the active WebView DOM, while cross-chapter search fetches full chapter bodies only during the search loop and stores only match snippets/results in UI state.
+- Reader scroll positions are memory-first. Scroll messages update only in-memory URL ratios for HV/Chinese toggle alignment; persist `readerScrollRatio` to SQLite only when leaving the active book for a different story, not during normal scrolling or same-book Prev/Next.
+- Reader mode uses one active WebView. Do not reintroduce dual mounted HV/Chinese WebViews or inactive-mode prewarming; that made mode switching freeze on large chapters. Cache only the currently requested shaped HTML, and build reader-mode WebView HTML after interactions instead of during render.
+- Reader search has two scopes: current-reader search computes matches in React Native from the reader segment registry and sends only highlight ranges to WebView, while cross-chapter search fetches full chapter bodies only during the search loop and stores only match snippets/results in UI state. Current-reader search indexes are cached per active segment registry/dictionary and manual searches are scheduled after interactions to keep taps smoother.
 - Cross-chapter search returns every keyword occurrence in matching chapters, not just the first chapter hit; keep occurrence indexes aligned with WebView auto-jump resolution.
 - Offline book search keywords and cached cross-chapter results live in `offline_chapter_search_cache`; current-reader search records keyword history/counts only and must not persist WebView-local result payloads.
-- Dictionary lookup uses `data/definition-word-index.json` for in-memory word matching, then queries `data/TrungVietDictionary.sqlite` for exact `word`, `pinyin`, `hv`, and `meaning` content.
+- Dictionary lookup is React Native-owned business logic. Reader HTML carries only segment id/index metadata needed by the bridge for taps/highlights; RN keeps the Chinese segment registry, chooses lookup ranges, uses `data/definition-word-index.json` for word matching, then queries `data/TrungVietDictionary.sqlite` for exact `word`, `pinyin`, `hv`, and `meaning` content.
+- Reader Worklets are enabled with Babel plugin setup, Metro `inlineRequires`, and a guarded native-only `hvbrowser-reader` runtime. Reader HTML shaping, current-reader search prewarm/cold manual search, and pure Han-Viet conversion are worker-routed with timeout/RN fallbacks; encoding, cleanup, SQLite definition lookup, and WebView commands stay on RN/native paths.
 - The definition DB is imported as `TrungVietDictionary-v2.sqlite`; bump this name again if the bundled SQLite schema changes.
 - `DataHanVietUni.json` is the merged Han-Viet character map. `newChinesePhienAm.json`, `PinyinData.json`, and `pinyin-pro` were removed; do not reintroduce pinyin JSON for dictionary sheet lookup.
 
@@ -110,17 +113,20 @@ For stable architectural decisions, prefer the ADR file over growing this sectio
   - dictionary-sheet lookup messages
 - Changes to injected JS can easily break navigation or reader restoration. Re-test on device/simulator when touching it.
 - For reader loading UX changes, do not mark loading complete until the `WebView` load-complete path has run.
-- Reader-mode dictionary annotation should keep the WebView DOM light: `.hv-word` spans carry Chinese character and segment metadata only, while pinyin/HV/meaning come from native SQLite lookup.
+- Reader scroll restoration uses an in-memory URL-keyed ratio cache for active-session alignment, especially HV/Chinese toggles. Do not write scroll position to SQLite from scroll events, timers, debounce loops, or same-book chapter navigation; only persist the previous book's active chapter position when `storyId` changes.
+- Keep HV/Chinese mode switching on a single WebView with a small current-mode HTML cache. Prepare reader-mode HTML in an after-interactions effect, not inside render. Avoid mounting separate hidden WebViews or preparing the inactive mode in the background unless a future implementation proves it does not block the JS thread or native WebView rendering on large chapters.
+- Reader-mode annotation should keep the WebView DOM light: `.hv-word` spans carry only segment id/index metadata for tap/highlight targeting. Full Chinese sentence/context, current-reader search matching, lookup range selection, pinyin/HV/meaning, and dictionary matching belong to React Native / SQLite lookup.
 
 ### Reader Search
 
-- Search inside the current reader is WebView-local. `stores/useWebPageStore.ts` issues `readerSearchRequest` / jump requests, and injected JS in `app/index.tsx` builds a temporary token index from the active DOM.
+- Search inside the current reader is React Native-owned. `stores/useWebPageStore.ts` issues `readerSearchRequest` / jump requests, `app/index.tsx` computes Chinese/Han-Viet matches from the reader segment registry, and injected JS only registers RN-provided result ranges, highlights spans, and scrolls to targets.
+- Current-reader search should reuse the prepared index cache in `app/index.tsx` instead of rebuilding Chinese/Han-Viet indexes for every query. Manual searches should stay scheduled after interactions unless a future worker-runtime implementation replaces the JS-thread calculation.
 - Current-reader search highlights should cover every token in a matched phrase. Store and jump to match target ranges in injected JS; do not collapse a multi-word/multi-character match to only its first `.hv-word`.
 - Search across chapters is offline-library text search. It may call `getOfflineChapterById()` to inspect full chapter HTML, but it should keep only `OfflineChapterTextMatch` snippets in component state and release full chapter records after each iteration.
 - Search across chapters should surface all occurrences per chapter. `utils/offline-chapter-search.ts` returns per-occurrence snippets and occurrence indexes; result lists may contain multiple rows for the same chapter.
 - Do not add long-lived full-text indexes or arrays of chapter HTML to Zustand for search. Persist only compact SQLite search cache entries in `offline_chapter_search_cache`, keyed by story/query/signature, and keep full chapter bodies out of long-lived state.
 - Current-reader search may update the offline book keyword history/search count so recent/top suggestions work, but it must not overwrite existing cached cross-chapter `result_json` / `chapter_signature` for that keyword.
-- Cross-chapter result jumps should use `readerSearchAutoJumpRequest` so opening the target chapter can search the active DOM and jump after WebView render, instead of trying to carry DOM offsets between chapters.
+- Cross-chapter result jumps should use `readerSearchAutoJumpRequest` so opening the target chapter can compute current-reader matches from the RN segment registry and jump after WebView render, instead of carrying DOM offsets between chapters.
 - Cross-chapter result lists must stay in `readerSearchScope === 'chapters'` after opening a result. Clear or ignore pending current-reader search requests when installing chapter results so late `reader-search-results` WebView messages cannot replace the chapter list and break Prev/Next across chapters.
 
 ### Dictionary Lookup
@@ -129,6 +135,8 @@ For stable architectural decisions, prefer the ADR file over growing this sectio
   - `data/definition-word-index.json` is generated from SQLite words and loaded for in-memory matching.
   - `TrungVietDictionary.sqlite` stores definition content and includes `word`, `pinyin`, `meaning`, and `hv`.
   - `utils/definition-dictionary.ts` caches only the active Chinese context/sentence, not a global definition cache.
+- Keep dictionary lookup business logic out of injected HTML. WebView tap messages should send metadata such as `lookupId`, `segmentId`, `characterIndex`, and selected range; `app/index.tsx` should reconstruct the Chinese context from the RN segment registry and decide best/exact lookup ranges.
+- `react-native-worklets` routes pure reader shaping/search/conversion work through the guarded reader runtime when available. Keep Web/failed-native fallback on RN, and benchmark large chapter serialization on device before assuming the worker path is faster for every chapter.
 - Regenerate the word index with `bun run generate:definition-index` after changing dictionary words.
 - Repopulate SQLite `hv` from the merged Han-Viet map with `bun run merge:han-viet-dictionary` after changing `DataHanVietUni.json` or the dictionary DB.
 
@@ -143,6 +151,7 @@ For stable architectural decisions, prefer the ADR file over growing this sectio
 - Offline records live in the same SQLite DB file as bookmarks, but in separate Kysely schemas/modules.
 - Chapter URLs are unique in `offline_chapters`. Re-queue logic depends on that uniqueness.
 - Offline chapter resume state is stored durably per chapter via `lastOpenedAt`.
+- Per-chapter `readerScrollRatio` is a coarse durable book-switch resume marker, not a continuously persisted scroll log. Keep high-frequency reader position state in memory.
 - Queue processing is intentionally serialized via `queueLoopPromise` in [`utils/offline-download-queue.ts`](/Users/saigon/dev/hvbrowser/utils/offline-download-queue.ts).
 - Hydrating the offline library also rebuilds the in-memory download queue from queued chapter rows; [`app/_layout.tsx`](/Users/saigon/dev/hvbrowser/app/_layout.tsx) restarts the queue loop when queued items are present.
 - Existing downloaded HTML should be reused when possible instead of redownloading.

@@ -9,8 +9,9 @@ import {
 import { useAppStore } from '../stores/useAppStore';
 import { useWebPageStore } from '../stores/useWebPageStore';
 import { cleanupHtml } from '../utils/cleanup';
-import { convertHtmlPageToHV, downloadHtmlPage, extractHtmlTitle } from '../utils/downloader';
+import { downloadHtmlPage, extractHtmlTitle } from '../utils/downloader';
 import { queueEpubImportFromPicker } from '../utils/epub-import-queue';
+import { convertHtmlPageToHVInBackground } from '../utils/han-viet-worklet';
 import { fixUrl } from '../utils/normalize-url';
 import { importTxtFromPicker } from '../utils/txt-import';
 import { injectBaseHref } from '../utils/webview-html';
@@ -55,9 +56,28 @@ export function usePageLoader() {
 
   const loadOfflineChapter = useCallback(
     async (chapterId: number, options?: LoadOfflineChapterOptions) => {
+      const previousState = useAppStore.getState();
+
+      if (!options?.skipHistory) {
+        pushCurrentHistory();
+      }
+
+      setUrlInputFocus(false);
+      setLoading(true);
+      setLoadingStage('converting');
+      setError(false);
+      setPendingContentAnchor(options?.anchor ?? null);
+      setCurrentContentSource('offline', chapterId);
+      setHtmlContent('', '');
+
       const chapter = await getOfflineChapterById(chapterId);
       if (!chapter) {
+        setCurrentContentSource(
+          previousState.currentContentSource,
+          previousState.currentOfflineChapterId,
+        );
         setError(true);
+        setLoading(false);
         return;
       }
       const currentState = useAppStore.getState();
@@ -67,10 +87,6 @@ export function usePageLoader() {
         currentState.currentContentSource === 'offline' &&
         (currentState.currentUrl.startsWith('epub://') ||
           currentState.currentUrl.startsWith('txt://'));
-
-      if (!options?.skipHistory) {
-        pushCurrentHistory();
-      }
 
       if (openingLocalFileChapter && !alreadyInLocalFileSession) {
         setFullSite(false);
@@ -84,13 +100,7 @@ export function usePageLoader() {
         }
       }
 
-      setUrlInputFocus(false);
-      setLoading(true);
       setLoadingStage(chapter.convertedHvHtml ? 'rendering' : 'converting');
-      setError(false);
-      setPendingContentAnchor(options?.anchor ?? null);
-      setCurrentContentSource('offline', chapter.id);
-      setHtmlContent('', '');
       setCurrentUrl(chapter.chapterUrl);
 
       try {
@@ -100,7 +110,7 @@ export function usePageLoader() {
 
         if (!convertedHtml) {
           const cleanedOriginalHtml = (await cleanupHtml(originalHtml)) || originalHtml;
-          convertedHtml = await convertHtmlPageToHV(cleanedOriginalHtml, dictionary);
+          convertedHtml = await convertHtmlPageToHVInBackground(cleanedOriginalHtml, dictionary);
           const updatedChapter = await updateOfflineChapterStatus(chapter.id, 'downloaded', null, {
             convertedHvHtml: convertedHtml,
             downloadedAt: chapter.downloadedAt ?? new Date().toISOString(),
@@ -193,7 +203,7 @@ export function usePageLoader() {
         setLoadingStage('converting');
         const htmlClean = await cleanupHtml(htmlContent);
         const htmlOrig = injectBaseHref(htmlContent, url);
-        const htmlConvert = await convertHtmlPageToHV(htmlClean || '', dictionary);
+        const htmlConvert = await convertHtmlPageToHVInBackground(htmlClean || '', dictionary);
         const htmlHv = injectBaseHref(htmlConvert, url);
 
         const title = extractHtmlTitle(htmlConvert) || extractHtmlTitle(htmlContent) || url;

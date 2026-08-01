@@ -129,6 +129,110 @@ Why:
 - Resume behavior should come from durable reading state, not transient UI state.
 - Both the offline library and reader surfaces need a shared source of truth for “last chapter read”.
 
+### 2026-07 Reader scroll position is memory-first
+
+Status: Accepted
+
+- WebView scroll messages update an in-memory URL-keyed scroll ratio cache in `app/index.tsx`.
+- The in-memory cache is used for active-session restoration and for keeping the reader aligned when switching between Han-Viet and Chinese render modes.
+- Scroll events must not write `readerScrollRatio` to SQLite directly, through a timer, or through a debounce loop.
+- Same-book Prev/Next chapter navigation must not persist scroll position to SQLite.
+- When switching to a different offline story/book, persist the previous book's active chapter `readerScrollRatio` once, using the last in-memory ratio.
+
+Why:
+
+- Scroll messages are high-frequency and SQLite writes compete with reader taps, the bottom-right menu, and chapter navigation on mobile.
+- Within one book session, transient in-memory position is enough for line matching and render-mode toggles.
+- A durable DB position is only needed when leaving a book so the library can later resume that book near the last active chapter position.
+
+### 2026-07 HV/Chinese mode switching stays single-WebView
+
+Status: Accepted
+
+- Reader mode uses one active WebView for the current chapter.
+- Switching Han-Viet/Chinese may reuse a small in-memory cache for the currently requested shaped HTML.
+- Reader-mode WebView HTML shaping runs after interactions in `app/index.tsx` instead of during React render.
+- Do not mount separate persistent HV and Chinese WebViews for the same reader chapter in the current architecture.
+- Do not prewarm the inactive mode on the foreground JS thread after chapter load.
+
+Why:
+
+- A dual-WebView experiment made large chapters worse: the hidden WebView still required full chapter HTML shaping and native WebView rendering.
+- Inactive-mode prewarming can freeze the switch button because it competes with taps on the JS thread and native WebView work.
+- Building dictionary/search segment HTML during render blocks taps before React Native can update loading/menu UI.
+- A single WebView keeps bridge ownership simpler for dictionary lookup, reader search, navigation interception, and scroll restoration.
+
+### 2026-08 Dictionary lookup business logic stays in React Native
+
+Status: Accepted
+
+- Reader HTML should contain only bridge metadata needed for interaction:
+  - segment id/index metadata for dictionary taps, current-reader search highlights, and native highlight targeting
+- `app/index.tsx` keeps the Chinese segment registry produced while shaping reader HTML.
+- WebView dictionary tap messages send metadata such as `lookupId`, `segmentId`, `characterIndex`, and selected range.
+- React Native reconstructs the Chinese context from the segment registry, chooses best/exact lookup ranges, calls the in-memory dictionary word index, and reads definition content from SQLite.
+- Injected JavaScript may apply RN-supplied highlight ranges, but should not build full Chinese sentence lookup context or own dictionary-range business rules.
+
+Why:
+
+- Full sentence/context generation inside injected HTML/JavaScript makes the WebView bridge heavier and harder to reason about on large chapters.
+- Keeping dictionary decisions in RN centralizes business logic beside `utils/definition-dictionary.ts` and the SQLite lookup path.
+- Lightweight metadata keeps the DOM small while preserving current-reader search highlights and native-controlled dictionary highlighting.
+
+### 2026-08 Current-reader search matching stays in React Native
+
+Status: Accepted
+
+- Reader HTML shaping produces a React Native segment registry with Chinese text, source text, generated Han-Viet text, and compact source offsets.
+- Current-reader search computes Chinese and Han-Viet matches from that RN segment registry.
+- Prepared current-reader Chinese/Han-Viet search indexes are cached per active segment registry/dictionary instead of rebuilt for each query.
+- Manual current-reader search is scheduled after interactions so taps and sheet animation can settle before the first heavy match pass starts.
+- `useWebPageStore` stores only transient result metadata for the active reader search.
+- Injected JavaScript accepts RN-provided result id/range registrations, highlights matching `.hv-word` spans, and scrolls to the first target.
+- Cross-chapter search result jumps still use `readerSearchAutoJumpRequest`, but the opened chapter re-resolves the occurrence through RN segment search instead of WebView DOM indexing.
+
+Why:
+
+- Building a token index by walking the active DOM in injected JavaScript made search and cross-chapter jumps compete with WebView rendering on large chapters.
+- RN already owns the shaped segment registry needed for dictionary lookup, so search can reuse the same metadata without increasing HTML payload.
+- Keeping WebView search work to highlight/scroll commands reduces bridge complexity and avoids long-running injected calculations.
+- `react-native-worklets` is installed, but true worker-runtime search/conversion should be a deliberate follow-up because Babel/runtime setup and serialization costs need validation on device.
+
+### 2026-08 Reader Worklet migration
+
+Status: Accepted
+
+- `react-native-worklets` is present in dependencies.
+- `babel.config.js` enables `react-native-worklets/plugin` so functions marked with `'worklet';` can be serialized.
+- `metro.config.js` enables `inlineRequires` because Expo apps can otherwise hit Worklets initialization issues.
+- `utils/reader-worklet-runtime.ts` creates a guarded native-only reader runtime named `hvbrowser-reader`, warms it after initial interactions, and exposes a single scheduler with RN fallback behavior.
+- Web and failed native initialization keep the React Native-thread fallback because Worklets worker runtimes are not supported on web and can fail if the native app has not been rebuilt.
+- Pure worker-safe code lives outside React components:
+  - `utils/reader-search.ts` owns current-reader search index construction and matching.
+  - `utils/han-viet-converter.ts` owns the pure character-to-Han-Viet loop.
+  - `utils/reader-worklet-tasks.ts` owns Worklet task wrappers and marshals results back with `scheduleOnRN`.
+- Worker-routed tasks:
+  - reader HTML shaping and dictionary segment registry construction
+  - current-reader search index prewarming
+  - cold manual current-reader search matching
+  - first-time Han-Viet conversion after download/cleanup
+- Fallbacks:
+  - reader HTML shaping falls back to the existing RN builder if scheduling fails or times out.
+  - manual search falls back to the existing RN search if scheduling fails or times out.
+  - Han-Viet conversion falls back to the pure RN conversion loop if scheduling fails or times out.
+- Still on RN/native paths:
+  - download and charset decoding
+  - HTML cleanup
+  - SQLite dictionary definition lookup
+  - WebView bridge commands, highlighting, scrolling, and navigation
+- Device benchmark still required: use large GBK/UTF-8 chapters to compare tap latency, total chapter prepare time, memory, and serialization cost.
+
+Why:
+
+- A worker can reduce RN JS thread stalls only if the data passed across runtime boundaries is compact enough.
+- Worklet code cannot directly own WebView, SQLite, or React state side effects; those must stay in RN and receive compact worker results.
+- Timeout fallbacks prevent reader prepare/search/conversion from getting stuck if a native Worklet runtime rejects a payload or a workletized import.
+
 ### 2026-05 All `epub://` opens must resolve through offline chapter lookup
 
 Status: Accepted

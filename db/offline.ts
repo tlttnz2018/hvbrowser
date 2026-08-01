@@ -1137,6 +1137,35 @@ export async function getOfflineChapterById(id: number): Promise<OfflineChapterR
   return row ? mapOfflineChapterRow(row) : null;
 }
 
+export async function getOfflineChapterMetadataById(
+  id: number,
+): Promise<OfflineChapterRecord | null> {
+  await ensureOfflineDbReady();
+
+  const row = await offlineDb
+    .selectFrom('offline_chapters')
+    .select([
+      'id',
+      'story_id',
+      'chapter_name',
+      'chapter_url',
+      'chapter_order',
+      'download_status',
+      'download_error',
+      'downloaded_at',
+      'last_opened_at',
+      'reader_scroll_ratio',
+      'reader_font_size',
+      'reader_is_hv',
+      'created_at',
+      'updated_at',
+    ])
+    .where('id', '=', id)
+    .executeTakeFirst();
+
+  return row ? mapOfflineChapterMetadataRow(row) : null;
+}
+
 export async function updateOfflineChapterStatus(
   id: number,
   status: OfflineChapterStatus,
@@ -1189,7 +1218,7 @@ export async function updateOfflineChapterStatus(
 
   await offlineDb.updateTable('offline_chapters').set(nextValues).where('id', '=', id).execute();
 
-  return getOfflineChapterById(id);
+  return getOfflineChapterMetadataById(id);
 }
 
 export async function updateOfflineChapterReaderScrollRatio(
@@ -1212,7 +1241,7 @@ export async function updateOfflineChapterReaderScrollRatio(
     .where('id', '=', id)
     .execute();
 
-  return getOfflineChapterById(id);
+  return getOfflineChapterMetadataById(id);
 }
 
 export async function updateOfflineChapterReaderPreferences(
@@ -1236,7 +1265,7 @@ export async function updateOfflineChapterReaderPreferences(
     .where('id', '=', id)
     .execute();
 
-  return getOfflineChapterById(id);
+  return getOfflineChapterMetadataById(id);
 }
 
 export async function markOfflineChapterOpened(
@@ -1254,7 +1283,7 @@ export async function markOfflineChapterOpened(
     .where('id', '=', id)
     .execute();
 
-  return getOfflineChapterById(id);
+  return getOfflineChapterMetadataById(id);
 }
 
 export async function getOfflineChapterSearchCache(

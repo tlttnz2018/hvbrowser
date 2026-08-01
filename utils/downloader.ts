@@ -1,6 +1,8 @@
 import { Platform } from 'react-native';
 
 import { cleanupHtml } from './cleanup';
+import { convertTextToHanViet } from './han-viet-converter';
+import { convertHtmlPageToHVInBackground } from './han-viet-worklet';
 
 // iconv-lite and encoding-japanese are only used on native (require Buffer + string_decoder)
 // On web, the browser handles encoding natively via its own TextDecoder
@@ -160,13 +162,7 @@ export async function convertHtmlPageToHV(
   htmlContent: string,
   dictionary: Record<string, string>,
 ): Promise<string> {
-  const converts: string[] = [];
-  for (let idx = 0; idx < htmlContent.length; idx++) {
-    const ch = htmlContent[idx];
-    const hvWord = dictionary[ch];
-    converts.push(hvWord ? hvWord + ' ' : ch);
-  }
-  return converts.join('');
+  return convertTextToHanViet(htmlContent, dictionary);
 }
 
 export function extractHtmlTitle(html: string): string {
@@ -190,7 +186,7 @@ export async function downloadOfflineChapterPayload(
 ): Promise<{ originalHtml: string; convertedHvHtml: string; title: string }> {
   const originalHtml = await downloadHtmlPage(url);
   const cleanedHtml = (await cleanupHtml(originalHtml)) || originalHtml;
-  const convertedHvHtml = await convertHtmlPageToHV(cleanedHtml, dictionary);
+  const convertedHvHtml = await convertHtmlPageToHVInBackground(cleanedHtml, dictionary);
   const title = extractHtmlTitle(convertedHvHtml) || extractHtmlTitle(originalHtml) || url;
 
   return {

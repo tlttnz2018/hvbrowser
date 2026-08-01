@@ -1,7 +1,8 @@
 import { FontAwesome6 } from '@expo/vector-icons';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  InteractionManager,
   Modal,
   Pressable,
   ScrollView,
@@ -15,7 +16,7 @@ import { WebView, WebViewMessageEvent, WebViewNavigation } from 'react-native-we
 
 import { usePageLoader } from '../hooks/usePageLoader';
 import { useAppStore } from '../stores/useAppStore';
-import { useWebPageStore } from '../stores/useWebPageStore';
+import { type ReaderSearchResult, useWebPageStore } from '../stores/useWebPageStore';
 import { absoluteFill, Theme, useTheme } from '../theme';
 import {
   DefinitionEntry,
@@ -23,11 +24,23 @@ import {
   findDefinitionByWord,
 } from '../utils/definition-dictionary';
 import { extractBaseUrl } from '../utils/normalize-url';
+import { normalizeChineseSearch, normalizeHanVietSearch } from '../utils/offline-chapter-search';
+import {
+  scheduleReaderWorkletTask,
+  warmReaderWorkletRuntime,
+} from '../utils/reader-worklet-runtime';
+import {
+  buildReaderHtmlSourceWorklet,
+  buildReaderSearchIndexesWorklet,
+  findReaderSegmentSearchMatchesWithIndexesWorklet,
+} from '../utils/reader-worklet-tasks';
 import { getBottomInsetWithSystemBarPadding } from '../utils/safe-area';
 import {
+  buildPresentationHtmlWithChineseDefinitions,
+  buildPresentationHtmlWithHvDefinitions,
   normalizeEpubFullSiteHtml,
-  stripPresentationHtmlWithChineseDefinitions,
-  stripPresentationHtmlWithHvDefinitions,
+  type ReaderDefinitionSegment,
+  type ReaderHtmlWithDefinitionSegments,
 } from '../utils/webview-html';
 
 type DefinitionLookupMode = 'best' | 'exact';
@@ -41,6 +54,7 @@ interface DefinitionLookupPayload {
   activeIndex?: number | null;
   lookupId?: string;
   lookupMode?: DefinitionLookupMode;
+  segmentId?: number;
   chineseContext?: string;
   characterIndex?: number;
   selectedWord?: string;
@@ -63,6 +77,11 @@ interface DefinitionSheetState {
   hanViet: string;
   meaning: string;
   loading: boolean;
+  segmentId: number | null;
+  start: number;
+  end: number;
+  activeIndex: number;
+  segmentLength: number;
   canPrev: boolean;
   canNext: boolean;
   canShrink: boolean;
@@ -71,6 +90,13 @@ interface DefinitionSheetState {
 
 const MAX_READER_SCROLL_CACHE_ENTRIES = 40;
 const MAX_SAVED_CHAPTER_CACHE_ENTRIES = 80;
+const MAX_READER_HTML_CACHE_ENTRIES = 6;
+const READER_HTML_WORKLET_TIMEOUT_MS = 8000;
+const READER_SEARCH_WORKLET_TIMEOUT_MS = 6000;
+const EMPTY_READER_HTML_SOURCE: ReaderHtmlWithDefinitionSegments = {
+  html: '',
+  definitionSegments: {},
+};
 
 function pruneStringKeyedRecord<T>(record: Record<string, T>, maxEntries: number) {
   const keys = Object.keys(record);
@@ -101,12 +127,44 @@ function pruneSavedChapterRecord<T extends { savedAt: number }>(
 }
 
 interface DefinitionSelectionState {
+  segmentId: number | null;
   word: string;
   pinyin: string;
   start: number;
   end: number;
   activeIndex: number;
   segmentLength: number;
+}
+
+interface ReaderSearchTargetRange {
+  segmentId: number;
+  start: number;
+  end: number;
+}
+
+interface ReaderSearchWebMatch {
+  id: string;
+  ranges: ReaderSearchTargetRange[];
+}
+
+interface ReaderSearchIndexPosition {
+  segmentId: number;
+  characterIndex: number;
+}
+
+interface ReaderSearchIndex {
+  text: string;
+  map: ReaderSearchIndexPosition[];
+}
+
+interface ReaderSearchCollection {
+  results: ReaderSearchResult[];
+  webMatches: ReaderSearchWebMatch[];
+}
+
+interface ReaderSearchPreparedIndexes {
+  chinese: ReaderSearchIndex;
+  hanViet: ReaderSearchIndex;
 }
 
 function buildFullSiteFontScript(fontSize: number): string {
@@ -187,31 +245,292 @@ function getSelectionControls(selection: DefinitionSelectionState) {
   };
 }
 
+function getSegmentCharacters(segment: ReaderDefinitionSegment | null | undefined) {
+  return Array.from(segment?.text ?? '');
+}
+
+function getSegmentBreaks(segment: ReaderDefinitionSegment | null | undefined) {
+  return new Set(segment?.breakBeforeIndexes ?? []);
+}
+
+function getSegmentWordRange(segment: ReaderDefinitionSegment, activeIndex: number) {
+  const chars = getSegmentCharacters(segment);
+  const breaks = getSegmentBreaks(segment);
+  const safeActiveIndex = Math.max(0, Math.min(chars.length - 1, activeIndex));
+  let start = safeActiveIndex;
+  while (start > 0 && !breaks.has(start)) {
+    start -= 1;
+  }
+
+  let end = safeActiveIndex + 1;
+  while (end < chars.length && !breaks.has(end)) {
+    end += 1;
+  }
+
+  return { start, end };
+}
+
+function getSegmentTextRange(
+  segment: ReaderDefinitionSegment | null | undefined,
+  start: number,
+  end: number,
+) {
+  return getSegmentCharacters(segment).slice(start, end).join('');
+}
+
+function getOrderedReaderSegments(segments: Record<number, ReaderDefinitionSegment>) {
+  return Object.values(segments).sort((left, right) => left.id - right.id);
+}
+
+function appendReaderSearchText(
+  index: ReaderSearchIndex,
+  text: string,
+  position: ReaderSearchIndexPosition,
+) {
+  for (const ch of text) {
+    index.text += ch;
+    index.map.push(position);
+  }
+}
+
+function buildReaderChineseSearchIndex(
+  segments: Record<number, ReaderDefinitionSegment>,
+): ReaderSearchIndex {
+  const index: ReaderSearchIndex = { text: '', map: [] };
+
+  getOrderedReaderSegments(segments).forEach((segment) => {
+    getSegmentCharacters(segment).forEach((ch, characterIndex) => {
+      const normalized = normalizeChineseSearch(ch);
+      if (!normalized) {
+        return;
+      }
+      appendReaderSearchText(index, normalized, { segmentId: segment.id, characterIndex });
+    });
+  });
+
+  return index;
+}
+
+function buildReaderHanVietSearchIndex(
+  segments: Record<number, ReaderDefinitionSegment>,
+  dictionary: Record<string, string>,
+): ReaderSearchIndex {
+  const index: ReaderSearchIndex = { text: '', map: [] };
+
+  getOrderedReaderSegments(segments).forEach((segment) => {
+    getSegmentCharacters(segment).forEach((ch, characterIndex) => {
+      const normalized = normalizeHanVietSearch(dictionary[ch] || ch);
+      if (!normalized) {
+        return;
+      }
+      const position = { segmentId: segment.id, characterIndex };
+      if (index.text && index.text.charAt(index.text.length - 1) !== ' ') {
+        appendReaderSearchText(index, ' ', position);
+      }
+      appendReaderSearchText(index, normalized, position);
+    });
+  });
+
+  return index;
+}
+
+function buildReaderSearchIndexes(
+  segments: Record<number, ReaderDefinitionSegment>,
+  dictionary: Record<string, string>,
+): ReaderSearchPreparedIndexes {
+  return {
+    chinese: buildReaderChineseSearchIndex(segments),
+    hanViet: buildReaderHanVietSearchIndex(segments, dictionary),
+  };
+}
+
+function buildReaderSearchRanges(
+  searchIndex: ReaderSearchIndex,
+  foundAt: number,
+  queryLength: number,
+): ReaderSearchTargetRange[] {
+  const positions = searchIndex.map.slice(foundAt, foundAt + queryLength);
+  const ranges: ReaderSearchTargetRange[] = [];
+
+  positions.forEach((position) => {
+    const current = ranges[ranges.length - 1];
+    if (
+      current &&
+      current.segmentId === position.segmentId &&
+      position.characterIndex <= current.end
+    ) {
+      current.end = Math.max(current.end, position.characterIndex + 1);
+      return;
+    }
+
+    ranges.push({
+      segmentId: position.segmentId,
+      start: position.characterIndex,
+      end: position.characterIndex + 1,
+    });
+  });
+
+  return ranges;
+}
+
+function buildReaderSearchSnippet(
+  segment: ReaderDefinitionSegment | null | undefined,
+  matchType: ReaderSearchResult['matchType'],
+  characterIndex: number,
+) {
+  if (!segment) {
+    return '';
+  }
+
+  const sourceText =
+    matchType === 'han-viet' ? segment.hanVietText || segment.sourceText : segment.sourceText;
+  const sourceCharacters = Array.from(sourceText || segment.text);
+  const sourceIndex =
+    matchType === 'han-viet'
+      ? (segment.hanVietIndexes[characterIndex] ?? characterIndex)
+      : (segment.sourceIndexes[characterIndex] ?? characterIndex);
+  const start = Math.max(0, sourceIndex - 42);
+  const end = Math.min(sourceCharacters.length, sourceIndex + 88);
+
+  return sourceCharacters.slice(start, end).join('').replace(/\s+/g, ' ').trim().slice(0, 120);
+}
+
+function collectReaderSearchIndexMatches(
+  input: {
+    searchIndex: ReaderSearchIndex;
+    query: string;
+    segments: Record<number, ReaderDefinitionSegment>;
+    matchType: ReaderSearchResult['matchType'];
+    requestId: number;
+    seen: Set<string>;
+    maxResults: number;
+  },
+  output: ReaderSearchCollection,
+) {
+  if (!input.query) {
+    return;
+  }
+
+  let startAt = 0;
+  while (output.results.length < input.maxResults) {
+    const foundAt = input.searchIndex.text.indexOf(input.query, startAt);
+    if (foundAt < 0) {
+      break;
+    }
+
+    const ranges = buildReaderSearchRanges(input.searchIndex, foundAt, input.query.length);
+    const firstRange = ranges[0];
+    if (firstRange) {
+      const seenKey = `${input.matchType}:${ranges
+        .map((range) => `${range.segmentId}:${range.start}:${range.end}`)
+        .join('|')}`;
+      if (!input.seen.has(seenKey)) {
+        input.seen.add(seenKey);
+        const id = `reader-search-${input.requestId}-${output.results.length}`;
+        const label = input.matchType === 'chinese' ? 'Chinese match' : 'Han-Viet match';
+        output.results.push({
+          id,
+          label,
+          matchType: input.matchType,
+          snippet: buildReaderSearchSnippet(
+            input.segments[firstRange.segmentId],
+            input.matchType,
+            firstRange.start,
+          ),
+          occurrenceIndex: output.results.length,
+        });
+        output.webMatches.push({ id, ranges });
+      }
+    }
+
+    startAt = foundAt + Math.max(1, input.query.length);
+  }
+}
+
+function findReaderSegmentSearchMatches(input: {
+  segments: Record<number, ReaderDefinitionSegment>;
+  indexes: ReaderSearchPreparedIndexes;
+  rawQuery: string;
+  requestId: number;
+  maxResults?: number;
+}): ReaderSearchCollection {
+  const chineseQuery = normalizeChineseSearch(input.rawQuery);
+  const hanVietQuery = normalizeHanVietSearch(input.rawQuery);
+  const output: ReaderSearchCollection = { results: [], webMatches: [] };
+  const maxResults = input.maxResults && input.maxResults > 0 ? input.maxResults : 80;
+  const seen = new Set<string>();
+
+  collectReaderSearchIndexMatches(
+    {
+      searchIndex: input.indexes.chinese,
+      query: chineseQuery,
+      segments: input.segments,
+      matchType: 'chinese',
+      requestId: input.requestId,
+      seen,
+      maxResults,
+    },
+    output,
+  );
+  collectReaderSearchIndexMatches(
+    {
+      searchIndex: input.indexes.hanViet,
+      query: hanVietQuery,
+      segments: input.segments,
+      matchType: 'han-viet',
+      requestId: input.requestId,
+      seen,
+      maxResults,
+    },
+    output,
+  );
+
+  return output;
+}
+
 function getInitialSelectionFromPayload(
   payload: DefinitionLookupPayload,
+  segments: Record<number, ReaderDefinitionSegment>,
 ): DefinitionSelectionState {
+  const segmentId =
+    typeof payload.segmentId === 'number' && Number.isFinite(payload.segmentId)
+      ? Math.floor(payload.segmentId)
+      : null;
+  const segment = segmentId == null ? null : segments[segmentId];
+  const segmentCharacters = getSegmentCharacters(segment);
   const activeIndex =
     typeof payload.characterIndex === 'number' && Number.isFinite(payload.characterIndex)
-      ? Math.max(0, Math.floor(payload.characterIndex))
+      ? Math.max(
+          0,
+          Math.min(Math.max(0, segmentCharacters.length - 1), Math.floor(payload.characterIndex)),
+        )
       : 0;
   const segmentLength =
-    typeof payload.segmentLength === 'number' && Number.isFinite(payload.segmentLength)
-      ? Math.max(1, Math.floor(payload.segmentLength))
-      : Math.max(1, getCharacterLength(payload.chineseContext ?? payload.selectedWord ?? ''));
+    segmentCharacters.length > 0
+      ? segmentCharacters.length
+      : typeof payload.segmentLength === 'number' && Number.isFinite(payload.segmentLength)
+        ? Math.max(1, Math.floor(payload.segmentLength))
+        : Math.max(1, getCharacterLength(payload.chineseContext ?? payload.selectedWord ?? ''));
+  const defaultRange = segment ? getSegmentWordRange(segment, activeIndex) : null;
   const start =
     typeof payload.selectedStart === 'number' && Number.isFinite(payload.selectedStart)
-      ? Math.max(0, Math.floor(payload.selectedStart))
-      : activeIndex;
+      ? Math.max(0, Math.min(segmentLength - 1, Math.floor(payload.selectedStart)))
+      : (defaultRange?.start ?? activeIndex);
   const end =
     typeof payload.selectedEnd === 'number' && Number.isFinite(payload.selectedEnd)
       ? Math.min(segmentLength, Math.max(start + 1, Math.floor(payload.selectedEnd)))
-      : Math.min(
+      : (defaultRange?.end ??
+        Math.min(
           segmentLength,
           start + Math.max(1, getCharacterLength(payload.selectedWord ?? '')),
-        );
+        ));
+  const word = segment
+    ? getSegmentTextRange(segment, start, end)
+    : (payload.selectedWord ?? payload.fallbackWord ?? '');
 
   return {
-    word: payload.selectedWord ?? payload.fallbackWord ?? '',
+    segmentId,
+    word,
     pinyin: '',
     start,
     end,
@@ -223,9 +542,11 @@ function getInitialSelectionFromPayload(
 function getSelectionForResult(
   payload: DefinitionLookupPayload,
   entry: DefinitionEntry | null,
+  segments: Record<number, ReaderDefinitionSegment>,
 ): DefinitionSelectionState {
-  const initial = getInitialSelectionFromPayload(payload);
-  const contextCharacters = Array.from(payload.chineseContext ?? '');
+  const initial = getInitialSelectionFromPayload(payload, segments);
+  const segment = initial.segmentId == null ? null : segments[initial.segmentId];
+  const contextCharacters = getSegmentCharacters(segment);
   const entryCharacters = Array.from(entry?.word ?? '');
 
   if (
@@ -252,7 +573,7 @@ function getSelectionForResult(
 
   return {
     ...initial,
-    word: entry?.word ?? initial.word,
+    word: payload.lookupMode === 'exact' ? initial.word : (entry?.word ?? initial.word),
     pinyin: entry?.pinyin ?? initial.pinyin,
   };
 }
@@ -272,18 +593,92 @@ function buildDefinitionSheetState(
     hanViet: entry?.hanViet ?? '',
     meaning,
     loading: false,
+    segmentId: selection.segmentId,
+    start: selection.start,
+    end: selection.end,
+    activeIndex: selection.activeIndex,
+    segmentLength: selection.segmentLength,
     ...controls,
+  };
+}
+
+function getDefinitionPayloadForAction(
+  current: DefinitionSheetState,
+  action: 'prev' | 'next' | 'shrink' | 'expand',
+): DefinitionLookupPayload | null {
+  if (current.segmentId == null) {
+    return null;
+  }
+
+  let activeIndex = current.activeIndex;
+  let start = current.start;
+  let end = current.end;
+
+  if (action === 'prev') {
+    if (activeIndex <= 0) return null;
+    activeIndex -= 1;
+    start = activeIndex;
+    end = activeIndex + 1;
+  } else if (action === 'next') {
+    if (activeIndex >= current.segmentLength - 1) return null;
+    activeIndex += 1;
+    start = activeIndex;
+    end = activeIndex + 1;
+  } else if (action === 'shrink') {
+    if (end - start <= 1) return null;
+    if (end - 1 > activeIndex) {
+      end -= 1;
+    } else {
+      start += 1;
+    }
+  } else if (action === 'expand') {
+    if (end < current.segmentLength) {
+      end += 1;
+    } else if (start > 0) {
+      start -= 1;
+    } else {
+      return null;
+    }
+  }
+
+  return {
+    type: 'definition-press',
+    lookupId: current.lookupId,
+    lookupMode: 'exact',
+    segmentId: current.segmentId,
+    characterIndex: activeIndex,
+    selectedStart: start,
+    selectedEnd: end,
+    segmentLength: current.segmentLength,
   };
 }
 
 export default function IndexScreen() {
   const webViewRef = useRef<WebView>(null);
   const readerScrollPositionsRef = useRef<Record<string, number>>({});
+  const readerDefinitionSegmentsRef = useRef<Record<number, ReaderDefinitionSegment>>({});
+  const readerSearchWebMatchesRef = useRef<ReaderSearchWebMatch[]>([]);
+  const readerSearchIndexCacheRef = useRef<{
+    segments: Record<number, ReaderDefinitionSegment>;
+    dictionary: Record<string, string>;
+    indexes: ReaderSearchPreparedIndexes;
+  } | null>(null);
+  const readerHtmlSourceCacheRef = useRef<
+    Record<string, { html: string; definitionSegments: Record<number, ReaderDefinitionSegment> }>
+  >({});
+  const readerHtmlSourceCacheScopeRef = useRef<{
+    currentUrl: string;
+    htmlOrig: string;
+    htmlHV: string;
+  } | null>(null);
   const pendingReaderRestoreUrlRef = useRef<string | null>(null);
   const currentOfflineChapterScrollRatioRef = useRef<number | null>(null);
-  const savedReaderScrollPositionsRef = useRef<Record<number, { ratio: number; savedAt: number }>>(
-    {},
-  );
+  const readerScrollSaveChainsRef = useRef<Record<number, Promise<void>>>({});
+  const activeOfflineReaderRef = useRef<{
+    chapterId: number;
+    storyId: number;
+    url: string;
+  } | null>(null);
   const savedReaderPreferencesRef = useRef<
     Record<number, { fontSize: number; isHV: boolean; savedAt: number }>
   >({});
@@ -293,6 +688,9 @@ export default function IndexScreen() {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const [definitionSheet, setDefinitionSheet] = useState<DefinitionSheetState | null>(null);
+  const [htmlSourceResult, setHtmlSourceResult] =
+    useState<ReaderHtmlWithDefinitionSegments>(EMPTY_READER_HTML_SOURCE);
+  const [readerHtmlPreparing, setReaderHtmlPreparing] = useState(false);
 
   const loading = useAppStore((s) => s.loading);
   const loadingStage = useAppStore((s) => s.loadingStage);
@@ -331,6 +729,187 @@ export default function IndexScreen() {
   const hasReaderHtml = !!(isHV ? htmlHV : htmlOrig);
 
   useEffect(() => {
+    InteractionManager.runAfterInteractions(() => {
+      warmReaderWorkletRuntime();
+    });
+  }, []);
+
+  const getActiveWebView = useCallback(() => {
+    return webViewRef.current;
+  }, []);
+
+  const registerReaderSearchMatchesInWebView = useCallback(
+    (matches: ReaderSearchWebMatch[]) => {
+      readerSearchWebMatchesRef.current = matches;
+      getActiveWebView()?.injectJavaScript(`
+        (function() {
+          if (window.__HVBROWSER_READER_SEARCH__REGISTER__) {
+            window.__HVBROWSER_READER_SEARCH__REGISTER__(${JSON.stringify(matches)});
+          }
+          return true;
+        })();
+      `);
+    },
+    [getActiveWebView],
+  );
+
+  const getReaderSearchIndexes = useCallback(
+    (segments: Record<number, ReaderDefinitionSegment>) => {
+      const cached = readerSearchIndexCacheRef.current;
+      if (cached && cached.segments === segments && cached.dictionary === dictionary) {
+        return cached.indexes;
+      }
+
+      const indexes = buildReaderSearchIndexes(segments, dictionary);
+      readerSearchIndexCacheRef.current = {
+        segments,
+        dictionary,
+        indexes,
+      };
+      return indexes;
+    },
+    [dictionary],
+  );
+
+  const runCurrentReaderSearch = useCallback(
+    (requestId: number, query: string, maxResults?: number) => {
+      const segments = readerDefinitionSegmentsRef.current;
+      const matches = findReaderSegmentSearchMatches({
+        segments,
+        indexes: getReaderSearchIndexes(segments),
+        rawQuery: query,
+        requestId,
+        maxResults,
+      });
+      registerReaderSearchMatchesInWebView(matches.webMatches);
+      return matches.results;
+    },
+    [getReaderSearchIndexes, registerReaderSearchMatchesInWebView],
+  );
+
+  const runCurrentReaderSearchInBackground = useCallback(
+    (
+      requestId: number,
+      query: string,
+      onComplete: (results: ReaderSearchResult[]) => void,
+      maxResults?: number,
+    ) => {
+      const segments = readerDefinitionSegmentsRef.current;
+      const cached = readerSearchIndexCacheRef.current;
+      let settled = false;
+      let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const finish = (results: ReaderSearchResult[]) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (fallbackTimer) {
+          clearTimeout(fallbackTimer);
+        }
+        onComplete(results);
+      };
+
+      if (cached && cached.segments === segments && cached.dictionary === dictionary) {
+        const matches = findReaderSegmentSearchMatches({
+          segments,
+          indexes: cached.indexes,
+          rawQuery: query,
+          requestId,
+          maxResults,
+        });
+        registerReaderSearchMatchesInWebView(matches.webMatches);
+        finish(matches.results);
+        return;
+      }
+
+      const fallback = (message?: string) => {
+        if (settled) {
+          return;
+        }
+        if (__DEV__ && message) {
+          console.warn('Reader search Worklet fallback:', message);
+        }
+        const results = runCurrentReaderSearch(requestId, query, maxResults);
+        finish(results);
+      };
+
+      const scheduled = scheduleReaderWorkletTask(
+        findReaderSegmentSearchMatchesWithIndexesWorklet,
+        {
+          segments,
+          dictionary,
+          rawQuery: query,
+          requestId,
+          maxResults,
+        },
+        (matches) => {
+          if (settled) {
+            return;
+          }
+          registerReaderSearchMatchesInWebView(matches.webMatches);
+          finish(matches.results);
+        },
+        fallback,
+      );
+
+      if (!scheduled) {
+        fallback();
+        return;
+      }
+
+      fallbackTimer = setTimeout(
+        () => fallback(`timed out after ${READER_SEARCH_WORKLET_TIMEOUT_MS}ms`),
+        READER_SEARCH_WORKLET_TIMEOUT_MS,
+      );
+    },
+    [dictionary, registerReaderSearchMatchesInWebView, runCurrentReaderSearch],
+  );
+
+  useEffect(() => {
+    if (fullSite || !htmlSourceResult.html) {
+      return;
+    }
+
+    const segments = htmlSourceResult.definitionSegments;
+    if (Object.keys(segments).length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    const task = InteractionManager.runAfterInteractions(() => {
+      if (cancelled) {
+        return;
+      }
+
+      scheduleReaderWorkletTask(
+        buildReaderSearchIndexesWorklet,
+        { segments, dictionary },
+        (indexes) => {
+          if (cancelled || readerDefinitionSegmentsRef.current !== segments) {
+            return;
+          }
+          readerSearchIndexCacheRef.current = {
+            segments,
+            dictionary,
+            indexes,
+          };
+        },
+        (message) => {
+          if (__DEV__) {
+            console.warn('Reader search index Worklet fallback:', message);
+          }
+        },
+      );
+    });
+
+    return () => {
+      cancelled = true;
+      task.cancel();
+    };
+  }, [dictionary, fullSite, htmlSourceResult]);
+
+  useEffect(() => {
     currentOfflineChapterScrollRatioRef.current = currentOfflineChapter?.readerScrollRatio ?? null;
   }, [currentOfflineChapter?.readerScrollRatio]);
 
@@ -365,35 +944,64 @@ export default function IndexScreen() {
     theme.mode,
   ]);
 
-  const persistOfflineReaderScrollRatio = useCallback(
-    (chapterId: number, ratio: number) => {
-      const safeRatio = Math.max(0, Math.min(1, ratio));
-      const previous = savedReaderScrollPositionsRef.current[chapterId];
-      const now = Date.now();
-
-      if (
-        previous &&
-        now - previous.savedAt < 1000 &&
-        Math.abs(previous.ratio - safeRatio) < 0.005
-      ) {
-        return;
+  const saveOfflineReaderScrollRatio = useCallback(
+    (chapterId: number, ratio: number | null | undefined) => {
+      if (ratio == null || !Number.isFinite(ratio)) {
+        return readerScrollSaveChainsRef.current[chapterId] ?? Promise.resolve();
       }
 
-      savedReaderScrollPositionsRef.current[chapterId] = {
-        ratio: safeRatio,
-        savedAt: now,
-      };
-      pruneSavedChapterRecord(
-        savedReaderScrollPositionsRef.current,
-        MAX_SAVED_CHAPTER_CACHE_ENTRIES,
-      );
+      const safeRatio = Math.max(0, Math.min(1, ratio));
+      const previousSave = readerScrollSaveChainsRef.current[chapterId] ?? Promise.resolve();
+      const nextSave = previousSave
+        .catch(() => undefined)
+        .then(() => updateOfflineChapterReaderScrollRatio(chapterId, safeRatio))
+        .catch((error) => {
+          console.error('Offline reader scroll save error:', error);
+        })
+        .finally(() => {
+          if (readerScrollSaveChainsRef.current[chapterId] === nextSave) {
+            delete readerScrollSaveChainsRef.current[chapterId];
+          }
+        });
 
-      updateOfflineChapterReaderScrollRatio(chapterId, safeRatio).catch((error) => {
-        console.error('Offline reader scroll save error:', error);
-      });
+      readerScrollSaveChainsRef.current[chapterId] = nextSave;
+      return nextSave;
     },
     [updateOfflineChapterReaderScrollRatio],
   );
+
+  useEffect(() => {
+    const previousReader = activeOfflineReaderRef.current;
+    const nextStoryId = currentOfflineChapter?.storyId;
+    const nextChapterUrl = currentOfflineChapter?.chapterUrl;
+
+    if (
+      previousReader &&
+      currentOfflineChapterId &&
+      nextStoryId &&
+      previousReader.chapterId !== currentOfflineChapterId &&
+      previousReader.storyId !== nextStoryId
+    ) {
+      void saveOfflineReaderScrollRatio(
+        previousReader.chapterId,
+        readerScrollPositionsRef.current[previousReader.url],
+      );
+    }
+
+    if (currentOfflineChapterId && nextStoryId && nextChapterUrl && currentUrl === nextChapterUrl) {
+      activeOfflineReaderRef.current = {
+        chapterId: currentOfflineChapterId,
+        storyId: nextStoryId,
+        url: nextChapterUrl,
+      };
+    }
+  }, [
+    currentOfflineChapter?.chapterUrl,
+    currentOfflineChapter?.storyId,
+    currentOfflineChapterId,
+    currentUrl,
+    saveOfflineReaderScrollRatio,
+  ]);
 
   const persistOfflineReaderPreferences = useCallback(
     (chapterId: number, nextFontSize: number, nextIsHV: boolean) => {
@@ -459,61 +1067,71 @@ export default function IndexScreen() {
     }
 
     if (!readerSearchRequest.query.trim()) {
+      registerReaderSearchMatchesInWebView([]);
       setReaderSearchResults(readerSearchRequest.id, readerSearchRequest.query, []);
       return;
     }
 
-    if (!webViewRef.current || !hasReaderHtml) {
+    if (fullSite || !hasReaderHtml) {
+      registerReaderSearchMatchesInWebView([]);
       setReaderSearchResults(readerSearchRequest.id, readerSearchRequest.query, []);
       return;
     }
 
-    webViewRef.current.injectJavaScript(`
-      (function() {
-        if (window.__HVBROWSER_READER_SEARCH__RUN__) {
-          window.__HVBROWSER_READER_SEARCH__RUN__(
-            ${JSON.stringify(readerSearchRequest.id)},
-            ${JSON.stringify(readerSearchRequest.query)}
-          );
-        }
-        return true;
-      })();
-    `);
-  }, [hasReaderHtml, readerSearchRequest, setReaderSearchResults]);
+    let cancelled = false;
+    const task = InteractionManager.runAfterInteractions(() => {
+      if (cancelled) {
+        return;
+      }
+      runCurrentReaderSearchInBackground(
+        readerSearchRequest.id,
+        readerSearchRequest.query,
+        (results) => {
+          if (!cancelled) {
+            setReaderSearchResults(readerSearchRequest.id, readerSearchRequest.query, results);
+          }
+        },
+      );
+    });
+
+    return () => {
+      cancelled = true;
+      task.cancel();
+    };
+  }, [
+    fullSite,
+    hasReaderHtml,
+    readerSearchRequest,
+    registerReaderSearchMatchesInWebView,
+    runCurrentReaderSearchInBackground,
+    setReaderSearchResults,
+  ]);
 
   useEffect(() => {
-    if (!readerSearchJumpRequest || !webViewRef.current) {
+    const activeWebView = getActiveWebView();
+    if (!readerSearchJumpRequest || !activeWebView) {
       return;
     }
 
-    webViewRef.current.injectJavaScript(`
+    activeWebView.injectJavaScript(`
       (function() {
         if (window.__HVBROWSER_READER_SEARCH__JUMP__) {
-          var jumped = window.__HVBROWSER_READER_SEARCH__JUMP__(
+          window.__HVBROWSER_READER_SEARCH__JUMP__(
             ${JSON.stringify(readerSearchJumpRequest.resultId)}
           );
-          if (
-            !jumped &&
-            window.__HVBROWSER_READER_SEARCH__JUMP_TO_QUERY__ &&
-            ${JSON.stringify(readerSearchJumpRequest.query)}.trim()
-          ) {
-            window.__HVBROWSER_READER_SEARCH__JUMP_TO_QUERY__(
-              ${JSON.stringify(readerSearchJumpRequest.query)},
-              ${JSON.stringify(readerSearchJumpRequest.resultIndex ?? 0)}
-            );
-          }
         }
         return true;
       })();
     `);
-  }, [readerSearchJumpRequest]);
+  }, [getActiveWebView, readerSearchJumpRequest]);
 
   const initialScript = `
     (function() {
       ${buildFullSiteFontScript(fontSize)}
       if (window.__HVBROWSER_LINK_BRIDGE__) { return true; }
       window.__HVBROWSER_LINK_BRIDGE__ = true;
-      var postScrollPosition = function() {
+      var lastPostedScrollRatio = null;
+      var postScrollPosition = function(force) {
         if (!window.ReactNativeWebView || !window.ReactNativeWebView.postMessage) {
           return;
         }
@@ -528,20 +1146,30 @@ export default function IndexScreen() {
         );
         var maxScroll = Math.max(0, scrollHeight - window.innerHeight);
         var ratio = maxScroll > 0 ? scrollTop / maxScroll : 0;
+        if (
+          !force &&
+          lastPostedScrollRatio !== null &&
+          Math.abs(lastPostedScrollRatio - ratio) < 0.003
+        ) {
+          return;
+        }
+        lastPostedScrollRatio = ratio;
         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'scroll-position', ratio: ratio }));
       };
       var scheduledScrollPost = null;
-      var scheduleScrollPositionPost = function() {
+      var scheduleScrollPositionPost = function(force) {
         if (scheduledScrollPost !== null) {
           window.clearTimeout(scheduledScrollPost);
         }
         scheduledScrollPost = window.setTimeout(function() {
           scheduledScrollPost = null;
-          postScrollPosition();
-        }, 80);
+          postScrollPosition(!!force);
+        }, force ? 40 : 240);
       };
-      window.addEventListener('scroll', scheduleScrollPositionPost, { passive: true });
-      window.addEventListener('load', postScrollPosition);
+      window.addEventListener('scroll', function() { scheduleScrollPositionPost(false); }, { passive: true });
+      window.addEventListener('touchend', function() { scheduleScrollPositionPost(true); }, { passive: true });
+      window.addEventListener('pagehide', function() { postScrollPosition(true); });
+      window.addEventListener('load', function() { postScrollPosition(true); });
       document.addEventListener('click', function() {
         if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'page-press' }));
@@ -579,224 +1207,133 @@ export default function IndexScreen() {
         var searchStyle = document.createElement('style');
         searchStyle.textContent = '.hv-reader-search-hit { background: rgba(255, 214, 102, 0.55) !important; outline: 2px solid rgba(224, 159, 0, 0.9) !important; border-radius: 3px !important; }';
         document.head.appendChild(searchStyle);
-        var normalizeHvSearch = function(value) {
-          return String(value || '').toLowerCase().replace(/\\s+/g, ' ').trim();
-        };
-        var normalizeChineseSearch = function(value) {
-          return String(value || '').replace(/\\s+/g, '');
-        };
-        var hasChinese = function(value) {
-          return /[\\u3400-\\u9fff\\uf900-\\ufaff]/.test(value || '');
-        };
-        var collectReaderSearchTokens = function() {
-          var tokens = [];
-          var root = document.body;
-          var visit = function(node) {
-            if (!node) return;
-            if (node.nodeType === 1) {
-              var element = node;
-              var tagName = (element.tagName || '').toLowerCase();
-              if (tagName === 'script' || tagName === 'style') {
-                return;
-              }
-              if (element.classList && element.classList.contains('hv-word')) {
-                var visible = element.textContent || '';
-                var chinese = element.getAttribute('data-chinese') || visible;
-                var hanViet = visible;
-                tokens.push({ visible: visible, chinese: chinese, hanViet: hanViet, target: element });
-                return;
-              }
-              var children = element.childNodes || [];
-              for (var childIndex = 0; childIndex < children.length; childIndex += 1) {
-                visit(children[childIndex]);
-              }
-              return;
-            }
-            if (node.nodeType === 3) {
-              var text = node.nodeValue || '';
-              if (!text.trim()) return;
-              tokens.push({
-                visible: text,
-                chinese: text,
-                hanViet: text,
-                target: node.parentElement || document.body
-              });
-            }
-          };
-          visit(root);
-          return tokens;
-        };
-        var appendIndexText = function(index, text, tokenIndex, keepSpaces) {
-          var normalized = keepSpaces ? normalizeHvSearch(text) : normalizeChineseSearch(text);
-          if (!normalized) return;
-          if (keepSpaces && index.text && index.text.charAt(index.text.length - 1) !== ' ') {
-            index.text += ' ';
-            index.map.push(tokenIndex);
-          }
-          for (var charIndex = 0; charIndex < normalized.length; charIndex += 1) {
-            index.text += normalized.charAt(charIndex);
-            index.map.push(tokenIndex);
-          }
-        };
-        var buildSearchIndex = function(tokens, key, keepSpaces) {
-          var index = { text: '', map: [] };
-          for (var tokenIndex = 0; tokenIndex < tokens.length; tokenIndex += 1) {
-            appendIndexText(index, tokens[tokenIndex][key], tokenIndex, keepSpaces);
-          }
-          return index;
-        };
-        var buildSearchSnippet = function(tokens, tokenIndex) {
-          var start = Math.max(0, tokenIndex - 6);
-          var end = Math.min(tokens.length, tokenIndex + 12);
-          var snippet = '';
-          for (var index = start; index < end; index += 1) {
-            snippet += tokens[index].visible;
-            if (tokens[index].visible && !/\\s$/.test(tokens[index].visible)) {
-              snippet += ' ';
-            }
-          }
-          return snippet.replace(/\\s+/g, ' ').trim().slice(0, 120);
-        };
-        var collectMatchTargets = function(tokens, startTokenIndex, endTokenIndex) {
-          if (typeof startTokenIndex !== 'number') {
-            return [];
-          }
-          var targets = [];
-          var safeStart = Math.max(0, startTokenIndex);
-          var safeEnd =
-            typeof endTokenIndex === 'number'
-              ? Math.max(safeStart, Math.min(tokens.length - 1, endTokenIndex))
-              : safeStart;
-          for (var index = safeStart; index <= safeEnd; index += 1) {
-            var token = tokens[index];
-            var target = token && token.target;
-            if (target && targets.indexOf(target) < 0) {
-              targets.push(target);
-            }
-          }
-          return targets;
-        };
-        var collectIndexMatches = function(
-          searchIndex,
-          query,
-          tokens,
-          matchType,
-          seen,
-          results,
-          maxResults
-        ) {
-          if (!query) return;
-          var resultLimit =
-            typeof maxResults === 'number' && maxResults > 0 ? maxResults : 80;
-          var startAt = 0;
-          while (results.length < resultLimit) {
-            var foundAt = searchIndex.text.indexOf(query, startAt);
-            if (foundAt < 0) break;
-            var tokenIndex = searchIndex.map[foundAt];
-            var endTokenIndex = searchIndex.map[Math.max(foundAt, foundAt + query.length - 1)];
-            var token = tokens[tokenIndex];
-            var targets = collectMatchTargets(tokens, tokenIndex, endTokenIndex);
-            if (targets.length > 0) {
-              var seenKey = matchType + ':' + tokenIndex + ':' + foundAt;
-              if (!seen[seenKey]) {
-                seen[seenKey] = true;
-                var id = 'reader-search-' + results.length + '-' + Date.now();
-                window.__HVBROWSER_READER_SEARCH_MATCHES__[id] = {
-                  targets: targets,
-                  scrollTarget: targets[0]
-                };
-                results.push({
-                  id: id,
-                  label: matchType === 'chinese' ? 'Chinese match' : 'Han-Viet match',
-                  matchType: matchType === 'chinese' ? 'chinese' : 'han-viet',
-                  snippet: buildSearchSnippet(tokens, tokenIndex)
-                });
-              }
-            }
-            startAt = foundAt + Math.max(1, query.length);
-          }
-        };
-        window.__HVBROWSER_READER_SEARCH__RUN__ = function(requestId, query) {
-          window.__HVBROWSER_READER_SEARCH_MATCHES__ = {};
-          var tokens = collectReaderSearchTokens();
-          var chineseIndex = buildSearchIndex(tokens, 'chinese', false);
-          var hvIndex = buildSearchIndex(tokens, 'hanViet', true);
-          var results = [];
-          var seen = {};
-          collectIndexMatches(chineseIndex, normalizeChineseSearch(query), tokens, 'chinese', seen, results);
-          collectIndexMatches(hvIndex, normalizeHvSearch(query), tokens, 'han-viet', seen, results);
-          if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'reader-search-results',
-              requestId: requestId,
-              query: query,
-              results: results
-            }));
-          }
-        };
-        window.__HVBROWSER_READER_SEARCH__JUMP__ = function(resultId) {
+        var clearReaderSearchHighlights = function() {
           var existing = document.querySelectorAll('.hv-reader-search-hit');
           for (var index = 0; index < existing.length; index += 1) {
             existing[index].classList.remove('hv-reader-search-hit');
           }
+        };
+        var collectRangeTargets = function(range) {
+          var targets = [];
+          if (!range || typeof range.segmentId !== 'number') {
+            return targets;
+          }
+          var candidates = document.querySelectorAll(
+            '.hv-word[data-hv-segment-id="' + String(range.segmentId) + '"]'
+          );
+          var start = typeof range.start === 'number' ? range.start : 0;
+          var end = typeof range.end === 'number' ? range.end : start + 1;
+          for (var index = 0; index < candidates.length; index += 1) {
+            var candidate = candidates[index];
+            var segmentIndex = parseInt(candidate.getAttribute('data-hv-segment-index') || '-1', 10);
+            if (!Number.isFinite(segmentIndex)) {
+              continue;
+            }
+            if (start <= segmentIndex && segmentIndex < end) {
+              targets.push(candidate);
+            }
+          }
+          return targets;
+        };
+        window.__HVBROWSER_READER_SEARCH__REGISTER__ = function(matches) {
+          window.__HVBROWSER_READER_SEARCH_MATCHES__ = {};
+          clearReaderSearchHighlights();
+          var nextMatches = Array.isArray(matches) ? matches : [];
+          for (var index = 0; index < nextMatches.length; index += 1) {
+            var match = nextMatches[index];
+            if (match && match.id) {
+              window.__HVBROWSER_READER_SEARCH_MATCHES__[match.id] = match;
+            }
+          }
+        };
+        window.__HVBROWSER_READER_SEARCH__JUMP__ = function(resultId) {
+          clearReaderSearchHighlights();
           var match = window.__HVBROWSER_READER_SEARCH_MATCHES__[resultId];
           if (!match) return false;
-          var targets = match.targets || [match];
-          var scrollTarget = match.scrollTarget || targets[0];
+          var targets = [];
+          var ranges = Array.isArray(match.ranges) ? match.ranges : [];
+          for (var rangeIndex = 0; rangeIndex < ranges.length; rangeIndex += 1) {
+            targets = targets.concat(collectRangeTargets(ranges[rangeIndex]));
+          }
+          if (targets.length === 0) return false;
           for (var targetIndex = 0; targetIndex < targets.length; targetIndex += 1) {
             if (targets[targetIndex] && targets[targetIndex].classList) {
               targets[targetIndex].classList.add('hv-reader-search-hit');
             }
           }
+          var scrollTarget = targets[0];
           if (scrollTarget && scrollTarget.scrollIntoView) {
             scrollTarget.scrollIntoView({ block: 'center', inline: 'nearest' });
           }
           return true;
         };
-        window.__HVBROWSER_READER_SEARCH__JUMP_TO_QUERY__ = function(query, occurrenceIndex) {
-          window.__HVBROWSER_READER_SEARCH_MATCHES__ = {};
-          var tokens = collectReaderSearchTokens();
-          var chineseIndex = buildSearchIndex(tokens, 'chinese', false);
-          var hvIndex = buildSearchIndex(tokens, 'hanViet', true);
-          var results = [];
-          var seen = {};
-          var targetResultCount = Math.max(80, (Number(occurrenceIndex) || 0) + 1);
-          collectIndexMatches(
-            chineseIndex,
-            normalizeChineseSearch(query),
-            tokens,
-            'chinese',
-            seen,
-            results,
-            targetResultCount
-          );
-          collectIndexMatches(
-            hvIndex,
-            normalizeHvSearch(query),
-            tokens,
-            'han-viet',
-            seen,
-            results,
-            targetResultCount
-          );
-          var activeIndex = Math.max(0, Math.min(results.length - 1, occurrenceIndex || 0));
-          var result = results[activeIndex];
-          if (result) {
-            window.__HVBROWSER_READER_SEARCH__JUMP__(result.id);
-          }
-          if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'reader-search-auto-results',
-              query: query,
-              activeIndex: result ? activeIndex : null,
-              results: results
-            }));
-          }
-        };
       }
       return true;
     })();
   `;
+
+  const runDefinitionLookup = useCallback(
+    (lookupPayload: DefinitionLookupPayload) => {
+      const lookupId = lookupPayload.lookupId;
+      if (!lookupId) {
+        return;
+      }
+
+      const segments = readerDefinitionSegmentsRef.current;
+      const initialSelection = getInitialSelectionFromPayload(lookupPayload, segments);
+      const context =
+        initialSelection.segmentId == null
+          ? (lookupPayload.chineseContext ?? '')
+          : (segments[initialSelection.segmentId]?.text ?? '');
+      setDefinitionSheet({
+        lookupId,
+        word: initialSelection.word,
+        pinyin: initialSelection.pinyin,
+        hanViet: '',
+        meaning: 'Looking up...',
+        loading: true,
+        segmentId: initialSelection.segmentId,
+        start: initialSelection.start,
+        end: initialSelection.end,
+        activeIndex: initialSelection.activeIndex,
+        segmentLength: initialSelection.segmentLength,
+        ...getSelectionControls(initialSelection),
+      });
+
+      void (async () => {
+        const entry =
+          lookupPayload.lookupMode === 'exact' && initialSelection.word
+            ? await findDefinitionByWord(initialSelection.word, {
+                chineseContext: context,
+              })
+            : context
+              ? await findBestDefinitionMatch(context, initialSelection.activeIndex)
+              : null;
+        const selection = getSelectionForResult(lookupPayload, entry, segments);
+        setDefinitionSheet(buildDefinitionSheetState(lookupId, entry, selection));
+        const result = {
+          lookupId,
+          segmentId: selection.segmentId,
+          activeIndex: selection.activeIndex,
+          selectedStart: selection.start,
+          selectedEnd: selection.end,
+          segmentLength: selection.segmentLength,
+        };
+
+        getActiveWebView()?.injectJavaScript(`
+          (function() {
+            if (window.__HVBROWSER_DEFINITION_LOOKUP__SHOW__) {
+              window.__HVBROWSER_DEFINITION_LOOKUP__SHOW__(${JSON.stringify(result)});
+            }
+            return true;
+          })();
+        `);
+      })().catch((error) => {
+        console.error('Definition lookup error:', error);
+      });
+    },
+    [getActiveWebView],
+  );
 
   const handleMessage = useCallback(
     (event: WebViewMessageEvent) => {
@@ -823,13 +1360,6 @@ export default function IndexScreen() {
               readerScrollPositionsRef.current,
               MAX_READER_SCROLL_CACHE_ENTRIES,
             );
-            if (
-              (currentOfflineStory?.sourceType === 'epub' ||
-                currentOfflineStory?.sourceType === 'txt') &&
-              currentOfflineChapterId
-            ) {
-              persistOfflineReaderScrollRatio(currentOfflineChapterId, scrollRatio);
-            }
           }
           return;
         }
@@ -858,59 +1388,7 @@ export default function IndexScreen() {
         }
 
         if (payload.type === 'definition-press' && payload.lookupId) {
-          const lookupPayload = payload;
-          const lookupId = payload.lookupId;
-          const initialSelection = getInitialSelectionFromPayload(lookupPayload);
-          setDefinitionSheet({
-            lookupId,
-            word: initialSelection.word,
-            pinyin: initialSelection.pinyin,
-            hanViet: '',
-            meaning: 'Looking up...',
-            loading: true,
-            ...getSelectionControls(initialSelection),
-          });
-          void (async () => {
-            const entry =
-              lookupPayload.lookupMode === 'exact' && lookupPayload.selectedWord
-                ? await findDefinitionByWord(lookupPayload.selectedWord, {
-                    chineseContext: lookupPayload.chineseContext,
-                  })
-                : typeof lookupPayload.chineseContext === 'string' &&
-                    typeof lookupPayload.characterIndex === 'number'
-                  ? await findBestDefinitionMatch(
-                      lookupPayload.chineseContext,
-                      lookupPayload.characterIndex,
-                    )
-                  : null;
-            const selection = getSelectionForResult(lookupPayload, entry);
-            setDefinitionSheet(buildDefinitionSheetState(lookupId, entry, selection));
-            const result: {
-              lookupId: string;
-              entry: DefinitionEntry | null;
-              fallback: { word: string; pinyin: string; hanViet: string; meaning: string };
-            } = {
-              lookupId,
-              entry,
-              fallback: {
-                word: selection.word,
-                pinyin: selection.pinyin,
-                hanViet: entry?.hanViet ?? '',
-                meaning: entry?.meaning ?? 'No dictionary entry found.',
-              },
-            };
-
-            webViewRef.current?.injectJavaScript(`
-              (function() {
-                if (window.__HVBROWSER_DEFINITION_LOOKUP__SHOW__) {
-                  window.__HVBROWSER_DEFINITION_LOOKUP__SHOW__(${JSON.stringify(result)});
-                }
-                return true;
-              })();
-            `);
-          })().catch((error) => {
-            console.error('Definition lookup error:', error);
-          });
+          runDefinitionLookup(payload);
           return;
         }
 
@@ -934,12 +1412,10 @@ export default function IndexScreen() {
     [
       currentUrl,
       fullSite,
-      currentOfflineChapterId,
-      currentOfflineStory?.sourceType,
       getOfflineChapterByUrlFromState,
       loadOfflineChapter,
       loadPage,
-      persistOfflineReaderScrollRatio,
+      runDefinitionLookup,
       setReaderSearchAutoResults,
       setReaderSearchResults,
       setMoreMenu,
@@ -977,45 +1453,175 @@ export default function IndexScreen() {
   );
 
   const activeHtml = isHV ? htmlHV : htmlOrig;
-  const hasHtml = !!activeHtml;
   const isCurrentEpub = currentOfflineStory?.sourceType === 'epub';
   const readerBottomInset = getBottomInsetWithSystemBarPadding(insets.bottom);
-  const htmlSource = useMemo(() => {
-    if (fullSite) {
-      return isCurrentEpub
-        ? normalizeEpubFullSiteHtml(activeHtml, theme.reader, 14, readerBottomInset)
-        : activeHtml;
+  useEffect(() => {
+    let cancelled = false;
+    const cacheScope = readerHtmlSourceCacheScopeRef.current;
+    if (
+      !cacheScope ||
+      cacheScope.currentUrl !== currentUrl ||
+      cacheScope.htmlOrig !== htmlOrig ||
+      cacheScope.htmlHV !== htmlHV
+    ) {
+      readerHtmlSourceCacheRef.current = {};
+      readerSearchIndexCacheRef.current = null;
+      readerSearchWebMatchesRef.current = [];
+      readerDefinitionSegmentsRef.current = {};
+      readerHtmlSourceCacheScopeRef.current = {
+        currentUrl,
+        htmlOrig,
+        htmlHV,
+      };
+      setHtmlSourceResult(EMPTY_READER_HTML_SOURCE);
     }
 
-    return isHV
-      ? stripPresentationHtmlWithHvDefinitions(
+    if (!activeHtml) {
+      setReaderHtmlPreparing(false);
+      setHtmlSourceResult(EMPTY_READER_HTML_SOURCE);
+      readerDefinitionSegmentsRef.current = {};
+      readerSearchIndexCacheRef.current = null;
+      return;
+    }
+
+    const cacheKey = [
+      fullSite ? 'full' : 'reader',
+      isCurrentEpub ? 'epub' : 'web',
+      isHV ? 'hv' : 'zh',
+      fontSize,
+      readerBottomInset,
+      theme.mode,
+    ].join(':');
+    const cachedHtmlSource = readerHtmlSourceCacheRef.current[cacheKey];
+    if (cachedHtmlSource != null) {
+      setReaderHtmlPreparing(false);
+      setHtmlSourceResult(cachedHtmlSource);
+      readerDefinitionSegmentsRef.current = cachedHtmlSource.definitionSegments;
+      readerSearchIndexCacheRef.current = null;
+      return;
+    }
+
+    let settled = false;
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    const applyHtmlSourceResult = (nextResult: ReaderHtmlWithDefinitionSegments) => {
+      if (cancelled || settled) {
+        return;
+      }
+
+      settled = true;
+      if (fallbackTimer) {
+        clearTimeout(fallbackTimer);
+      }
+
+      readerHtmlSourceCacheRef.current[cacheKey] = nextResult;
+      pruneStringKeyedRecord(readerHtmlSourceCacheRef.current, MAX_READER_HTML_CACHE_ENTRIES);
+      readerDefinitionSegmentsRef.current = nextResult.definitionSegments;
+      readerSearchIndexCacheRef.current = null;
+      setHtmlSourceResult(nextResult);
+      setReaderHtmlPreparing(false);
+    };
+
+    const prepareHtmlSourceOnRn = () => {
+      return fullSite
+        ? {
+            html: isCurrentEpub
+              ? normalizeEpubFullSiteHtml(activeHtml, theme.reader, 14, readerBottomInset)
+              : activeHtml,
+            definitionSegments: {},
+          }
+        : isHV
+          ? buildPresentationHtmlWithHvDefinitions(
+              htmlOrig,
+              fontSize,
+              dictionary,
+              theme.reader,
+              readerBottomInset,
+            )
+          : buildPresentationHtmlWithChineseDefinitions(
+              htmlOrig,
+              fontSize,
+              dictionary,
+              theme.reader,
+              readerBottomInset,
+            );
+    };
+
+    const fallbackToRnPrepare = (message?: string) => {
+      if (cancelled || settled) {
+        return;
+      }
+      if (__DEV__ && message) {
+        console.warn('Reader HTML Worklet fallback:', message);
+      }
+      applyHtmlSourceResult(prepareHtmlSourceOnRn());
+    };
+
+    if (fullSite) {
+      applyHtmlSourceResult(prepareHtmlSourceOnRn());
+      return;
+    }
+
+    setReaderHtmlPreparing(true);
+    const task = InteractionManager.runAfterInteractions(() => {
+      if (cancelled) {
+        return;
+      }
+
+      const scheduled = scheduleReaderWorkletTask(
+        buildReaderHtmlSourceWorklet,
+        {
+          mode: isHV ? 'han-viet' : 'chinese',
           htmlOrig,
           fontSize,
           dictionary,
-          theme.reader,
-          readerBottomInset,
-        )
-      : stripPresentationHtmlWithChineseDefinitions(
-          htmlOrig,
-          fontSize,
-          theme.reader,
-          readerBottomInset,
-        );
+          readerTheme: theme.reader,
+          safeAreaBottom: readerBottomInset,
+        },
+        applyHtmlSourceResult,
+        fallbackToRnPrepare,
+      );
+
+      if (!scheduled) {
+        fallbackToRnPrepare();
+        return;
+      }
+
+      fallbackTimer = setTimeout(
+        () => fallbackToRnPrepare(`timed out after ${READER_HTML_WORKLET_TIMEOUT_MS}ms`),
+        READER_HTML_WORKLET_TIMEOUT_MS,
+      );
+    });
+
+    return () => {
+      cancelled = true;
+      if (fallbackTimer) {
+        clearTimeout(fallbackTimer);
+      }
+      task.cancel();
+    };
   }, [
     activeHtml,
+    currentUrl,
     dictionary,
     fontSize,
     fullSite,
+    htmlHV,
     htmlOrig,
     isCurrentEpub,
     isHV,
     readerBottomInset,
+    theme.mode,
     theme.reader,
   ]);
+
+  const htmlSource = htmlSourceResult.html;
+  const hasPreparedHtml = !!htmlSource;
+
   const baseUrl =
     currentUrl && /^(https?:|file:)/i.test(currentUrl) ? extractBaseUrl(currentUrl) : undefined;
   const restoreReaderScrollPosition = useCallback(() => {
-    if (!webViewRef.current || fullSite || !currentUrl) {
+    const activeWebView = getActiveWebView();
+    if (!activeWebView || fullSite || !currentUrl) {
       return;
     }
 
@@ -1042,11 +1648,21 @@ export default function IndexScreen() {
       })();
     `;
 
-    webViewRef.current.injectJavaScript(restoreScript);
-  }, [currentUrl, fullSite]);
+    activeWebView.injectJavaScript(restoreScript);
+  }, [currentUrl, fullSite, getActiveWebView]);
+  useEffect(() => {
+    if (!fullSite && hasPreparedHtml) {
+      const handle = setTimeout(() => {
+        restoreReaderScrollPosition();
+      }, 32);
+
+      return () => clearTimeout(handle);
+    }
+  }, [fullSite, hasPreparedHtml, isHV, restoreReaderScrollPosition]);
 
   const restorePendingAnchor = useCallback(() => {
-    if (!webViewRef.current || !pendingContentAnchor) {
+    const activeWebView = getActiveWebView();
+    if (!activeWebView || !pendingContentAnchor) {
       return;
     }
 
@@ -1062,13 +1678,14 @@ export default function IndexScreen() {
       })();
     `;
 
-    webViewRef.current.injectJavaScript(anchorScript);
+    activeWebView.injectJavaScript(anchorScript);
     setPendingContentAnchor(null);
-  }, [pendingContentAnchor, setPendingContentAnchor]);
+  }, [getActiveWebView, pendingContentAnchor, setPendingContentAnchor]);
 
   const jumpToPendingReaderSearch = useCallback(() => {
+    const activeWebView = getActiveWebView();
     if (
-      !webViewRef.current ||
+      !activeWebView ||
       !readerSearchAutoJumpRequest ||
       !currentOfflineChapterId ||
       readerSearchAutoJumpRequest.chapterId !== currentOfflineChapterId
@@ -1077,22 +1694,39 @@ export default function IndexScreen() {
     }
 
     const jumpRequest = readerSearchAutoJumpRequest;
+    const targetResultCount = Math.max(80, jumpRequest.occurrenceIndex + 1);
+    const results = runCurrentReaderSearch(jumpRequest.id, jumpRequest.query, targetResultCount);
+    const activeIndex = Math.max(0, Math.min(results.length - 1, jumpRequest.occurrenceIndex || 0));
+    const result = results[activeIndex];
+    setReaderSearchAutoResults(jumpRequest.query, results, result ? activeIndex : null);
+
+    if (!result) {
+      clearReaderSearchAutoJump(jumpRequest.id);
+      return false;
+    }
+
     const jumpScript = `
       (function() {
-        if (window.__HVBROWSER_READER_SEARCH__JUMP_TO_QUERY__) {
-          window.__HVBROWSER_READER_SEARCH__JUMP_TO_QUERY__(
-            ${JSON.stringify(jumpRequest.query)},
-            ${JSON.stringify(jumpRequest.occurrenceIndex)}
+        if (window.__HVBROWSER_READER_SEARCH__JUMP__) {
+          window.__HVBROWSER_READER_SEARCH__JUMP__(
+            ${JSON.stringify(result.id)}
           );
         }
         return true;
       })();
     `;
 
-    webViewRef.current.injectJavaScript(jumpScript);
+    activeWebView.injectJavaScript(jumpScript);
     clearReaderSearchAutoJump(jumpRequest.id);
     return true;
-  }, [clearReaderSearchAutoJump, currentOfflineChapterId, readerSearchAutoJumpRequest]);
+  }, [
+    clearReaderSearchAutoJump,
+    currentOfflineChapterId,
+    getActiveWebView,
+    readerSearchAutoJumpRequest,
+    runCurrentReaderSearch,
+    setReaderSearchAutoResults,
+  ]);
 
   useEffect(() => {
     if (!readerSearchAutoJumpRequest?.immediate) {
@@ -1108,6 +1742,7 @@ export default function IndexScreen() {
       : loadingStage === 'converting'
         ? 'Converting to Han-Viet'
         : 'Preparing page';
+  const showLoadingOverlay = loading || readerHtmlPreparing;
 
   const handleLoadStart = useCallback(() => {
     if (!loading) {
@@ -1118,6 +1753,9 @@ export default function IndexScreen() {
   }, [loading, setLoadingStage]);
 
   const handleLoadEnd = useCallback(() => {
+    if (readerSearchWebMatchesRef.current.length > 0) {
+      registerReaderSearchMatchesInWebView(readerSearchWebMatchesRef.current);
+    }
     if (pendingContentAnchor) {
       restorePendingAnchor();
     } else if (jumpToPendingReaderSearch()) {
@@ -1129,6 +1767,7 @@ export default function IndexScreen() {
   }, [
     jumpToPendingReaderSearch,
     pendingContentAnchor,
+    registerReaderSearchMatchesInWebView,
     restorePendingAnchor,
     restoreReaderScrollPosition,
     setLoading,
@@ -1153,21 +1792,24 @@ export default function IndexScreen() {
         ].filter(Boolean)
     : [];
 
-  const sendDefinitionAction = useCallback((action: 'prev' | 'next' | 'shrink' | 'expand') => {
-    webViewRef.current?.injectJavaScript(`
-      (function() {
-        if (window.__HVBROWSER_DEFINITION_LOOKUP__ACTION__) {
-          window.__HVBROWSER_DEFINITION_LOOKUP__ACTION__(${JSON.stringify(action)});
-        }
-        return true;
-      })();
-    `);
-  }, []);
+  const sendDefinitionAction = useCallback(
+    (action: 'prev' | 'next' | 'shrink' | 'expand') => {
+      if (!definitionSheet || definitionSheet.loading) {
+        return;
+      }
+
+      const nextPayload = getDefinitionPayloadForAction(definitionSheet, action);
+      if (nextPayload) {
+        runDefinitionLookup(nextPayload);
+      }
+    },
+    [definitionSheet, runDefinitionLookup],
+  );
 
   const closeDefinitionSheet = useCallback(() => {
     setDefinitionSheet(null);
     setTimeout(() => {
-      webViewRef.current?.injectJavaScript(`
+      getActiveWebView()?.injectJavaScript(`
         (function() {
           if (window.__HVBROWSER_DEFINITION_LOOKUP__CLOSE__) {
             window.__HVBROWSER_DEFINITION_LOOKUP__CLOSE__();
@@ -1176,13 +1818,13 @@ export default function IndexScreen() {
         })();
       `);
     }, 32);
-  }, []);
+  }, [getActiveWebView]);
 
   return (
     <View style={styles.screen}>
-      {hasHtml && (
+      {hasPreparedHtml && (
         <WebView
-          key={`${currentContentSource}:${currentUrl}:${fullSite ? 'full' : 'reader'}:${isHV ? 'hv' : 'orig'}`}
+          key={`${currentContentSource}:${currentUrl}:${fullSite ? 'full' : 'reader'}`}
           ref={webViewRef}
           source={{
             html: htmlSource,
@@ -1294,10 +1936,14 @@ export default function IndexScreen() {
           )}
         </View>
       </Modal>
-      {loading && (
+      {showLoadingOverlay && (
         <View style={styles.loadingOverlay}>
           <View style={styles.loadingCard}>
-            <ActivityIndicator animating={loading} color={theme.colors.accent} size="small" />
+            <ActivityIndicator
+              animating={showLoadingOverlay}
+              color={theme.colors.accent}
+              size="small"
+            />
             <Text style={styles.loadingTitle}>{loadingLabel}</Text>
             <Text style={styles.loadingSubtitle}>
               Please wait while the reader finishes loading.

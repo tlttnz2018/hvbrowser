@@ -177,8 +177,11 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
       ? currentStoryChapters[currentStoryChapterIndex + 1]
       : null;
   const currentStorySearchSignature = useMemo(
-    () => buildOfflineChapterSearchSignature(currentStoryChapters),
-    [currentStoryChapters],
+    () =>
+      contentsVisible && contentsSearchQuery.trim()
+        ? buildOfflineChapterSearchSignature(currentStoryChapters)
+        : '',
+    [contentsSearchQuery, contentsVisible, currentStoryChapters],
   );
 
   const refreshContentsSearchSuggestions = useCallback(async () => {
@@ -202,6 +205,10 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
   }, [currentStory]);
 
   const contentsRows = useMemo<ContentsRow[]>(() => {
+    if (!contentsVisible) {
+      return [];
+    }
+
     const rawQuery = contentsSearchQuery.trim();
     const titleQuery = rawQuery.toLowerCase();
 
@@ -235,6 +242,7 @@ export default function WebTextToolbar({ reloadPage }: WebTextToolbarProps) {
   }, [
     contentsFilterKey,
     contentsSearchQuery,
+    contentsVisible,
     currentOfflineChapterId,
     currentStoryChapters,
     chapterTextMatches,
